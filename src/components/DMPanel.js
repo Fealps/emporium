@@ -200,7 +200,7 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
 
     setCsvError('');
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const text = event.target.result;
         const lines = text.split(/\r?\n/);
@@ -365,20 +365,16 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
           }
         });
 
-        try {
-          await db.updateGameStore(gameId, currentStore);
-          await db.addLog(gameId, "Dungeon Master", `Imported ${importedItems.length} items from CSV catalog.`);
-          await reloadState();
-          e.target.value = null;
-        } catch (err) {
-          console.error("Failed to parse CSV:", err);
-          setCsvError("Failed to parse CSV. Ensure correct format.");
-        }
-      };
-      reader.readAsText(file);
-    } catch (err) {
-      console.error(err);
-    }
+        await db.updateGameStore(gameId, currentStore);
+        await db.addLog(gameId, "Dungeon Master", `Imported ${importedItems.length} items from CSV catalog.`);
+        await reloadState();
+        e.target.value = null;
+      } catch (err) {
+        console.error("Failed to parse CSV:", err);
+        setCsvError("Failed to parse CSV. Ensure correct format.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleUpdateStock = async (itemId, change) => {

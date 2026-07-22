@@ -745,8 +745,8 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       return;
     }
 
-    if (file.size > 1.5 * 1024 * 1024) {
-      alert("Map image is too large! Please select a PNG under 1.5MB to ensure it fits in client database storage.");
+    if (file.size > 25 * 1024 * 1024) {
+      alert("Map image is too large! Please select a PNG under 25MB to ensure it fits in database storage.");
       return;
     }
 

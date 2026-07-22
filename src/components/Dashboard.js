@@ -152,7 +152,7 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
   };
 
   // Filter campaign lists
-  const dmCampaigns = Object.values(games).filter(g => g.dmUsername === username);
+  const dmCampaigns = Object.values(games).filter(g => g.dm === username);
 
   // Find player campaigns (we have a character in them)
   const allCharacters = JSON.parse(localStorage.getItem('emporium_characters') || '{}');

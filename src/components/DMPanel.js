@@ -23,9 +23,29 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
   const [storeSearch, setStoreSearch] = useState('');
   const [storeCategoryFilter, setStoreCategoryFilter] = useState('All');
 
+  // Shops Manager states
+  const [newShopName, setNewShopName] = useState('');
+  const [newShopDesc, setNewShopDesc] = useState('');
+  const [expandedShopId, setExpandedShopId] = useState(null);
+  const [shopStockItemSelect, setShopStockItemSelect] = useState('');
+  const [shopStockQty, setShopStockQty] = useState(5);
+  const [shopStockUnlimited, setShopStockUnlimited] = useState(false);
+
   // Map travel settings
   const [selectedTravelTarget, setSelectedTravelTarget] = useState('');
   const [travelDuration, setTravelDuration] = useState(30); // travel duration in seconds
+
+  // Map customization states
+  const [newLocName, setNewLocName] = useState('');
+  const [newLocDesc, setNewLocDesc] = useState('');
+  const [newLocX, setNewLocX] = useState(null);
+  const [newLocY, setNewLocY] = useState(null);
+
+  // Selected and edited landmark states for DM
+  const [selectedDMLocId, setSelectedDMLocId] = useState(null);
+  const [isEditingLandmark, setIsEditingLandmark] = useState(false);
+  const [editLocName, setEditLocName] = useState('');
+  const [editLocDesc, setEditLocDesc] = useState('');
 
   // Player manual editing
   const [editingPlayerKey, setEditingPlayerKey] = useState(''); // player username
@@ -34,11 +54,17 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
   const [editLevel, setEditLevel] = useState(1);
 
   // Reload campaign state
-  const reloadState = () => {
-    const g = db.getGame(gameId);
-    setGame(g);
-    setPlayers(db.getAllCharactersInGame(gameId));
-    setLogs(db.getLogs(gameId));
+  const reloadState = async () => {
+    try {
+      const g = await db.getGame(gameId);
+      setGame(g);
+      const chars = await db.getAllCharactersInGame(gameId);
+      setPlayers(chars);
+      const logsList = await db.getLogs(gameId);
+      setLogs(logsList);
+    } catch (e) {
+      console.error("Failed to reload campaign state:", e);
+    }
   };
 
   const getFilteredStoreItems = () => {
@@ -60,21 +86,24 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
 
     // Interval for travel ticks
     const timer = setInterval(() => {
-      const g = db.getGame(gameId);
-      if (g && g.travelState) {
-        const now = Date.now();
-        const elapsed = now - g.travelState.startTime;
-        if (elapsed >= g.travelState.durationMs) {
-          // Travel completed!
-          const targetLoc = g.locations.find(l => l.id === g.travelState.to);
-          db.updateGameTravel(gameId, {
-            partyLocation: g.travelState.to,
-            travelState: null
-          });
-          db.addLog(gameId, "Dungeon Master", `The party has successfully arrived at ${targetLoc ? targetLoc.name : 'their destination'}.`);
-          reloadState();
+      const checkTravel = async () => {
+        const g = await db.getGame(gameId);
+        if (g && g.travelState) {
+          const now = Date.now();
+          const elapsed = now - g.travelState.startTime;
+          if (elapsed >= g.travelState.durationMs) {
+            // Travel completed!
+            const targetLoc = g.locations.find(l => l.id === g.travelState.to);
+            await db.updateGameTravel(gameId, {
+              partyLocation: g.travelState.to,
+              travelState: null
+            });
+            await db.addLog(gameId, "Dungeon Master", `The party has successfully arrived at ${targetLoc ? targetLoc.name : 'their destination'}.`);
+            await reloadState();
+          }
         }
-      }
+      };
+      checkTravel();
     }, 1000);
 
     return () => {
@@ -87,7 +116,7 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
   if (!game) return <div className="text-center py-10 font-fantasy text-gold">Loading campaign vault...</div>;
 
   // Store operations
-  const handleAddItem = (e) => {
+  const handleAddItem = async (e) => {
     e.preventDefault();
     setStoreError('');
     if (!newItemName.trim()) {
@@ -109,22 +138,23 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
     };
 
     const updatedStore = [...game.store, item];
-    db.updateGameStore(gameId, updatedStore);
-    db.addLog(gameId, "Dungeon Master", `Added custom item "${item.name}" to the store.`);
-
-    // Reset form
-    setNewItemName('');
-    setNewItemDesc('');
-    reloadState();
+    try {
+      await db.updateGameStore(gameId, updatedStore);
+      await db.addLog(gameId, "Dungeon Master", `Added custom item "${item.name}" to the store.`);
+      setNewItemName('');
+      setNewItemDesc('');
+      await reloadState();
+    } catch (err) {
+      setStoreError(err.message);
+    }
   };
 
-  const handleImportSRDPack = (categoryFilter) => {
+  const handleImportSRDPack = async (categoryFilter) => {
     let itemsToImport = srdItems;
     if (categoryFilter) {
       itemsToImport = srdItems.filter(i => i.category === categoryFilter);
     }
 
-    // Avoid duplicate IDs
     const currentStore = [...game.store];
     itemsToImport.forEach(item => {
       if (!currentStore.some(i => i.id === item.id)) {
@@ -132,24 +162,36 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       }
     });
 
-    db.updateGameStore(gameId, currentStore);
-    db.addLog(gameId, "Dungeon Master", `Imported ${categoryFilter ? categoryFilter : 'all standard'} 5e items into the shop catalogue.`);
-    reloadState();
-  };
-
-  const handleClearStore = () => {
-    if (window.confirm("Are you sure you want to empty the shop inventory?")) {
-      db.updateGameStore(gameId, []);
-      db.addLog(gameId, "Dungeon Master", "Cleared all items from the store.");
-      reloadState();
+    try {
+      await db.updateGameStore(gameId, currentStore);
+      await db.addLog(gameId, "Dungeon Master", `Imported ${categoryFilter ? categoryFilter : 'all standard'} 5e items into the shop catalogue.`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleRemoveStoreItem = (itemId, itemName) => {
+  const handleClearStore = async () => {
+    if (window.confirm("Are you sure you want to empty the shop inventory?")) {
+      try {
+        await db.updateGameStore(gameId, []);
+        await db.addLog(gameId, "Dungeon Master", "Cleared all items from the store.");
+        await reloadState();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleRemoveStoreItem = async (itemId, itemName) => {
     const updatedStore = game.store.filter(i => i.id !== itemId);
-    db.updateGameStore(gameId, updatedStore);
-    db.addLog(gameId, "Dungeon Master", `Removed "${itemName}" from the store.`);
-    reloadState();
+    try {
+      await db.updateGameStore(gameId, updatedStore);
+      await db.addLog(gameId, "Dungeon Master", `Removed "${itemName}" from the store.`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleCSVUpload = (e) => {
@@ -323,19 +365,23 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
           }
         });
 
-        db.updateGameStore(gameId, currentStore);
-        db.addLog(gameId, "Dungeon Master", `Imported ${importedItems.length} items from CSV catalog.`);
-        reloadState();
-        e.target.value = null;
-      } catch (err) {
-        console.error("Failed to parse CSV:", err);
-        setCsvError("Failed to parse CSV. Ensure correct format.");
-      }
-    };
-    reader.readAsText(file);
+        try {
+          await db.updateGameStore(gameId, currentStore);
+          await db.addLog(gameId, "Dungeon Master", `Imported ${importedItems.length} items from CSV catalog.`);
+          await reloadState();
+          e.target.value = null;
+        } catch (err) {
+          console.error("Failed to parse CSV:", err);
+          setCsvError("Failed to parse CSV. Ensure correct format.");
+        }
+      };
+      reader.readAsText(file);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleUpdateStock = (itemId, change) => {
+  const handleUpdateStock = async (itemId, change) => {
     const updatedStore = game.store.map(i => {
       if (i.id === itemId) {
         const currentStock = i.stock === null ? 0 : i.stock;
@@ -344,12 +390,16 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       }
       return i;
     });
-    db.updateGameStore(gameId, updatedStore);
-    reloadState();
+    try {
+      await db.updateGameStore(gameId, updatedStore);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Travel operations
-  const handleStartTravel = () => {
+  const handleStartTravel = async () => {
     if (!selectedTravelTarget) return;
     if (selectedTravelTarget === game.partyLocation) return;
 
@@ -363,22 +413,29 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       durationMs: travelDuration * 1000
     };
 
-    db.updateGameTravel(gameId, {
-      partyLocation: game.partyLocation, // remains at current location until complete
-      travelState
-    });
-
-    db.addLog(gameId, "Dungeon Master", `The party began traveling from ${fromLoc.name} to ${toLoc.name} (Estimated time: ${travelDuration}s).`);
-    reloadState();
+    try {
+      await db.updateGameTravel(gameId, {
+        partyLocation: game.partyLocation,
+        travelState
+      });
+      await db.addLog(gameId, "Dungeon Master", `The party began traveling from ${fromLoc.name} to ${toLoc.name} (Estimated time: ${travelDuration}s).`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const handleCancelTravel = () => {
-    db.updateGameTravel(gameId, {
-      partyLocation: game.partyLocation,
-      travelState: null
-    });
-    db.addLog(gameId, "Dungeon Master", `Aborted travel progress. Party remained at current location.`);
-    reloadState();
+  const handleCancelTravel = async () => {
+    try {
+      await db.updateGameTravel(gameId, {
+        partyLocation: game.partyLocation,
+        travelState: null
+      });
+      await db.addLog(gameId, "Dungeon Master", `Aborted travel progress. Party remained at current location.`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Player manual editing operations
@@ -389,11 +446,12 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
     setEditGoldGp(player.gold.gp);
   };
 
-  const savePlayerEdits = () => {
+  const savePlayerEdits = async () => {
     const player = players.find(p => p.username === editingPlayerKey);
     if (!player) return;
 
     const updatedStats = {
+      ...player,
       level: Number(editLevel),
       hpCurrent: Math.min(player.hpMax, Math.max(0, Number(editHp))),
       gold: {
@@ -402,65 +460,372 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       }
     };
 
-    db.updateCharacter(gameId, editingPlayerKey, updatedStats);
-    db.addLog(gameId, "Dungeon Master", `Manually updated stats for player character ${player.name}.`);
-    setEditingPlayerKey('');
-    reloadState();
-  };
-
-  const handleGiveItem = (playerUsername, storeItem) => {
-    const characters = JSON.parse(localStorage.getItem('emporium_characters') || '{}');
-    const charKey = `${gameId}_${playerUsername.toLowerCase()}`;
-    const character = characters[charKey];
-    if (!character) return;
-
-    const existingIndex = character.inventory.findIndex(i => i.name.toLowerCase() === storeItem.name.toLowerCase());
-    if (existingIndex !== -1) {
-      character.inventory[existingIndex].quantity += 1;
-    } else {
-      character.inventory.push({
-        ...storeItem,
-        id: "dm_gift_" + Math.floor(1000 + Math.random() * 9000),
-        quantity: 1,
-        equipped: false,
-        equippedSlot: null
-      });
+    try {
+      await db.updateCharacter(gameId, editingPlayerKey, updatedStats);
+      await db.addLog(gameId, "Dungeon Master", `Manually updated stats for player character ${player.name}.`);
+      setEditingPlayerKey('');
+      await reloadState();
+    } catch (e) {
+      console.error(e);
     }
-
-    characters[charKey] = character;
-    localStorage.setItem('emporium_characters', JSON.stringify(characters));
-    db.addLog(gameId, "Dungeon Master", `Granted "${storeItem.name}" to ${character.name}'s inventory.`);
-    reloadState();
   };
 
-  const handleRemovePlayerItem = (playerUsername, itemId, itemName) => {
+  const handleGiveItem = async (playerUsername, storeItem) => {
+    try {
+      const character = await db.getCharacter(gameId, playerUsername);
+      if (!character) return;
+
+      const existingIndex = character.inventory.findIndex(i => i.name.toLowerCase() === storeItem.name.toLowerCase());
+      if (existingIndex !== -1) {
+        character.inventory[existingIndex].quantity += 1;
+      } else {
+        character.inventory.push({
+          ...storeItem,
+          id: "dm_gift_" + Math.floor(1000 + Math.random() * 9000),
+          quantity: 1,
+          equipped: false,
+          equippedSlot: null
+        });
+      }
+
+      await db.updateCharacter(gameId, playerUsername, character);
+      await db.addLog(gameId, "Dungeon Master", `Granted "${storeItem.name}" to ${character.name}'s inventory.`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRemovePlayerItem = async (playerUsername, itemId, itemName) => {
     if (!window.confirm(`Are you sure you want to remove "${itemName}" from this player's inventory?`)) return;
-    const characters = JSON.parse(localStorage.getItem('emporium_characters') || '{}');
-    const charKey = `${gameId}_${playerUsername.toLowerCase()}`;
-    const character = characters[charKey];
-    if (!character) return;
+    try {
+      const character = await db.getCharacter(gameId, playerUsername);
+      if (!character) return;
 
-    character.inventory = character.inventory.filter(i => i.id !== itemId);
-    characters[charKey] = character;
-    localStorage.setItem('emporium_characters', JSON.stringify(characters));
-    db.addLog(gameId, "Dungeon Master", `Removed "${itemName}" from ${character.name}'s inventory.`);
-    reloadState();
-  };
-
-  const handleTogglePlayerItemEquip = (playerUsername, itemId) => {
-    const res = db.toggleEquipItem(gameId, playerUsername, itemId);
-    if (!res.success) {
-      alert(`Failed to equip/unequip: ${res.error}`);
-    } else {
-      reloadState();
+      character.inventory = character.inventory.filter(i => i.id !== itemId);
+      await db.updateCharacter(gameId, playerUsername, character);
+      await db.addLog(gameId, "Dungeon Master", `Removed "${itemName}" from ${character.name}'s inventory.`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleRemovePlayer = (playerUsername, charName) => {
+  const handleTogglePlayerItemEquip = async (playerUsername, itemId) => {
+    try {
+      const res = await db.toggleEquipItem(gameId, playerUsername, itemId);
+      if (!res.success) {
+        alert(`Failed to equip/unequip: ${res.error}`);
+      } else {
+        await reloadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRemovePlayer = async (playerUsername, charName) => {
     if (!window.confirm(`Are you sure you want to kick and delete the character "${charName}" (played by ${playerUsername}) from this campaign?`)) return;
-    const res = db.deleteCharacter(gameId, playerUsername);
-    if (res) {
-      reloadState();
+    try {
+      const res = await db.deleteCharacter(gameId, playerUsername);
+      if (res) {
+        await reloadState();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Shops Manager operations
+  const handleCreateShop = async (e) => {
+    e.preventDefault();
+    if (!newShopName.trim()) return;
+
+    const currentShops = [...(game.shops || [])];
+    const newShop = {
+      id: "shop_" + Math.random().toString(36).substr(2, 9),
+      name: newShopName.trim(),
+      description: newShopDesc.trim(),
+      enabled: true,
+      inventory: []
+    };
+
+    currentShops.push(newShop);
+    try {
+      await db.updateGameShops(gameId, currentShops);
+      await db.addLog(gameId, "Dungeon Master", `Established new shop: "${newShop.name}".`);
+      setNewShopName('');
+      setNewShopDesc('');
+      await reloadState();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleShopEnabled = async (shopId) => {
+    const currentShops = (game.shops || []).map(shop => {
+      if (shop.id === shopId) {
+        const newStatus = !shop.enabled;
+        return { ...shop, enabled: newStatus };
+      }
+      return shop;
+    });
+
+    const targetShop = game.shops.find(s => s.id === shopId);
+    const newStatus = targetShop ? !targetShop.enabled : false;
+
+    try {
+      await db.updateGameShops(gameId, currentShops);
+      if (targetShop) {
+        await db.addLog(gameId, "Dungeon Master", `${newStatus ? 'Opened' : 'Closed'} shop "${targetShop.name}" for players.`);
+      }
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteShop = async (shopId, shopName) => {
+    if (!window.confirm(`Are you sure you want to shut down and delete "${shopName}"?`)) return;
+    const currentShops = (game.shops || []).filter(shop => shop.id !== shopId);
+
+    try {
+      await db.updateGameShops(gameId, currentShops);
+      await db.addLog(gameId, "Dungeon Master", `Disbanded shop "${shopName}".`);
+      if (expandedShopId === shopId) {
+        setExpandedShopId(null);
+      }
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAddStockToShop = async (shopId) => {
+    if (!shopStockItemSelect) return;
+    const catalogItem = game.store.find(item => item.id === shopStockItemSelect);
+    if (!catalogItem) return;
+
+    let targetShopName = '';
+    const currentShops = (game.shops || []).map(shop => {
+      if (shop.id === shopId) {
+        targetShopName = shop.name;
+        const existingItemIndex = shop.inventory.findIndex(i => i.name.toLowerCase() === catalogItem.name.toLowerCase());
+        const updatedInventory = [...shop.inventory];
+
+        if (existingItemIndex !== -1) {
+          updatedInventory[existingItemIndex].stock = shopStockUnlimited ? null : (updatedInventory[existingItemIndex].stock || 0) + shopStockQty;
+        } else {
+          updatedInventory.push({
+            ...catalogItem,
+            id: `shop_item_${Math.floor(1000 + Math.random() * 9000)}`,
+            catalogItemId: catalogItem.id,
+            stock: shopStockUnlimited ? null : shopStockQty
+          });
+        }
+        return { ...shop, inventory: updatedInventory };
+      }
+      return shop;
+    });
+
+    try {
+      await db.updateGameShops(gameId, currentShops);
+      await db.addLog(gameId, "Dungeon Master", `Stocked ${catalogItem.name} in "${targetShopName}".`);
+      setShopStockItemSelect('');
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleRemoveStockFromShop = async (shopId, itemId, itemName) => {
+    let targetShopName = '';
+    const currentShops = (game.shops || []).map(shop => {
+      if (shop.id === shopId) {
+        targetShopName = shop.name;
+        const updatedInventory = shop.inventory.filter(i => i.id !== itemId);
+        return { ...shop, inventory: updatedInventory };
+      }
+      return shop;
+    });
+
+    try {
+      await db.updateGameShops(gameId, currentShops);
+      await db.addLog(gameId, "Dungeon Master", `Removed ${itemName} from shop "${targetShopName}".`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleUpdateShopStockLevel = async (shopId, itemId, change) => {
+    const currentShops = (game.shops || []).map(shop => {
+      if (shop.id === shopId) {
+        const updatedInventory = shop.inventory.map(item => {
+          if (item.id === itemId) {
+            const currentStock = item.stock === null ? 0 : item.stock;
+            const newStock = Math.max(0, currentStock + change);
+            return { ...item, stock: item.stock === null ? null : newStock };
+          }
+          return item;
+        });
+        return { ...shop, inventory: updatedInventory };
+      }
+      return shop;
+    });
+
+    try {
+      await db.updateGameShops(gameId, currentShops);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Map customization handlers
+  const handleMapUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.type !== 'image/png') {
+      alert("Please upload a PNG file only.");
+      return;
+    }
+
+    if (file.size > 1.5 * 1024 * 1024) {
+      alert("Map image is too large! Please select a PNG under 1.5MB to ensure it fits in client database storage.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const dataUrl = event.target.result;
+      try {
+        await db.updateGameMapUrl(gameId, dataUrl);
+        await db.addLog(gameId, "Dungeon Master", "Uploaded a new custom campaign PNG map layout.");
+        await reloadState();
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetMap = async () => {
+    if (window.confirm("Reset campaign map back to default Phandalin cartography?")) {
+      try {
+        await db.updateGameMapUrl(gameId, null);
+        await db.addLog(gameId, "Dungeon Master", "Reset campaign map layout back to default.");
+        await reloadState();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleCreateLandmark = async (e) => {
+    e.preventDefault();
+    if (newLocX === null || newLocY === null || !newLocName.trim()) return;
+
+    const currentLocs = [...(game.locations || [])];
+    const newLoc = {
+      id: "loc_" + Math.floor(1000 + Math.random() * 9000),
+      name: newLocName.trim(),
+      description: newLocDesc.trim(),
+      x: newLocX,
+      y: newLocY
+    };
+
+    currentLocs.push(newLoc);
+    try {
+      await db.updateGameLocations(gameId, currentLocs);
+      await db.addLog(gameId, "Dungeon Master", `Placed new landmark "${newLoc.name}" at coordinates (X: ${newLocX}, Y: ${newLocY}).`);
+      setNewLocName('');
+      setNewLocDesc('');
+      setNewLocX(null);
+      setNewLocY(null);
+      await reloadState();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteLocation = async (locId, locName) => {
+    if (locId === "loc_start") {
+      alert("Cannot delete Phandalin (the starting location).");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete the landmark "${locName}"?`)) return;
+
+    const updatedLocs = (game.locations || []).filter(l => l.id !== locId);
+    let nextPartyLoc = game.partyLocation;
+    let nextTravelState = game.travelState;
+
+    if (game.partyLocation === locId) {
+      nextPartyLoc = "loc_start";
+    }
+    if (game.travelState && (game.travelState.to === locId || game.travelState.from === locId)) {
+      nextTravelState = null;
+    }
+
+    try {
+      await db.updateGameLocations(gameId, updatedLocs);
+      await db.updateGameTravel(gameId, {
+        partyLocation: nextPartyLoc,
+        travelState: nextTravelState
+      });
+      await db.addLog(gameId, "Dungeon Master", `Removed landmark "${locName}" from the map.`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSaveLandmarkEdits = async (e) => {
+    e.preventDefault();
+    if (!selectedDMLocId || !editLocName.trim()) return;
+
+    const updatedLocs = (game.locations || []).map(loc => {
+      if (loc.id === selectedDMLocId) {
+        return {
+          ...loc,
+          name: editLocName.trim(),
+          description: editLocDesc.trim()
+        };
+      }
+      return loc;
+    });
+
+    try {
+      await db.updateGameLocations(gameId, updatedLocs);
+      await db.addLog(gameId, "Dungeon Master", `Updated details for landmark "${editLocName.trim()}".`);
+      setIsEditingLandmark(false);
+      await reloadState();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleStartTravelToLoc = async (locId, locName) => {
+    if (locId === game.partyLocation) return;
+
+    const fromLoc = game.locations.find(l => l.id === game.partyLocation);
+    const travelState = {
+      from: game.partyLocation,
+      to: locId,
+      startTime: Date.now(),
+      durationMs: travelDuration * 1000
+    };
+
+    try {
+      await db.updateGameTravel(gameId, {
+        partyLocation: game.partyLocation,
+        travelState
+      });
+      await db.addLog(gameId, "Dungeon Master", `The party began traveling from ${fromLoc.name} to ${locName} (Estimated time: ${travelDuration}s).`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -506,7 +871,13 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
           onClick={() => setActiveTab('store')}
           className={`btn btn-primary nav-link ${activeTab === 'store' ? 'active' : ''}`}
         >
-          🏪 Store Setup ({game.store.length})
+          🏪 Catalogue ({game.store.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('shops')}
+          className={`btn btn-primary nav-link ${activeTab === 'shops' ? 'active' : ''}`}
+        >
+          🛒 Shops Manager ({(game.shops || []).length})
         </button>
         <button
           onClick={() => setActiveTab('map')}
@@ -785,156 +1156,570 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
         </div>
       )}
 
-      {/* 2. MAP & TRAVEL */}
-      {activeTab === 'map' && (
+      {/* SHOPS MANAGER */}
+      {activeTab === 'shops' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Map canvas */}
-          <div className="lg:col-span-2 glass-panel p-4 flex flex-col">
-            <h2 className="text-lg text-gold font-fantasy mb-3">Campaign World Map</h2>
+          {/* Create Shop Panel */}
+          <div className="tc-wrap-2 glass-panel p-5 h-fit space-y-4">
+            <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Establish New Shop</h2>
+            <form onSubmit={handleCreateShop} className="space-y-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-300 uppercase">Shop Name</label>
+                <input
+                  type="text"
+                  className="rpg-input"
+                  placeholder="e.g. Mystic Arcana"
+                  value={newShopName}
+                  onChange={(e) => setNewShopName(e.target.value)}
+                  required
+                />
+              </div>
 
-            <div
-              className="map-container"
-              style={{ backgroundImage: `url(${fantasyMap})` }}
-            >
-              {/* Place nodes */}
-              {game.locations.map(loc => {
-                const isActive = game.partyLocation === loc.id;
-                return (
-                  <div
-                    key={loc.id}
-                    className={`map-node ${isActive ? 'active' : ''}`}
-                    style={{ left: `${loc.x}px`, top: `${loc.y}px` }}
-                  >
-                    <div className="map-node-inner"></div>
-                    <div className="map-node-label">{loc.name}</div>
-                  </div>
-                );
-              })}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-slate-300 uppercase">Description</label>
+                <textarea
+                  className="rpg-input h-20 resize-none text-xs"
+                  placeholder="e.g. A dusty shop smelling of ancient paper and lavender."
+                  value={newShopDesc}
+                  onChange={(e) => setNewShopDesc(e.target.value)}
+                />
+              </div>
 
-              {/* Glowing party traveler icon */}
-              {game.travelState && (
-                <div
-                  className="map-party-indicator animate-bounce"
-                  style={{
-                    left: `${(() => {
-                      const fromLoc = game.locations.find(l => l.id === game.travelState.from);
-                      const toLoc = game.locations.find(l => l.id === game.travelState.to);
-                      const progress = getTravelProgress() / 100;
-                      return fromLoc.x + (toLoc.x - fromLoc.x) * progress;
-                    })()
-                      }px`,
-                    top: `${(() => {
-                      const fromLoc = game.locations.find(l => l.id === game.travelState.from);
-                      const toLoc = game.locations.find(l => l.id === game.travelState.to);
-                      const progress = getTravelProgress() / 100;
-                      return fromLoc.y + (toLoc.y - fromLoc.y) * progress;
-                    })()
-                      }px`
-                  }}
-                >
-                  ⛺
-                </div>
-              )}
-            </div>
+              <button type="submit" className="rpg-btn rpg-btn-primary w-full py-2">
+                ＋ Establish Shop
+              </button>
+            </form>
           </div>
 
-          {/* Map Details & Travel coordinator */}
-          <div className="glass-panel p-5 space-y-5 h-fit">
-            <div>
-              <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Party Status</h2>
-              <div className="mt-3 space-y-2">
-                <p className="text-sm">
-                  <span className="text-slate-400">Current Position:</span>{" "}
-                  <span className="font-fantasy text-amber-300">{activeLocation ? activeLocation.name : 'Unknown Wilderness'}</span>
-                </p>
-                <p className="text-xs text-slate-400 italic">
-                  "{activeLocation ? activeLocation.description : 'A mysterious area untouched by cartographers.'}"
-                </p>
+          {/* Shops list */}
+          <div className="glass-panel p-5 lg:col-span-2 space-y-4">
+            <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Campaign Shops</h2>
+
+            {(game.shops || []).length === 0 ? (
+              <div className="text-center py-20 text-slate-500 border border-dashed border-white/5 rounded-lg text-sm">
+                No custom shops created yet. Forge items in your Catalogue first, then create shops to sell them!
               </div>
-            </div>
+            ) : (
+              <div className="space-y-4">
+                {(game.shops || []).map(shop => {
+                  const isExpanded = expandedShopId === shop.id;
+                  return (
+                    <div key={shop.id} className="glass-panel p-4 border border-white/5 hover:border-white/10 transition space-y-3">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div>
+                          <h3 className="font-fantasy text-lg text-amber-400 flex items-center gap-2">
+                            {shop.name}
+                            <span className={`text-[10px] px-2 py-0.5 rounded ${shop.enabled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
+                              {shop.enabled ? 'Open' : 'Closed'}
+                            </span>
+                          </h3>
+                          <p className="text-xs text-slate-400 italic mt-1">{shop.description || "No description."}</p>
+                        </div>
 
-            {/* Travel simulation widget */}
-            <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-4">
-              <h3 className="text-sm text-gold font-fantasy">Set Travel Coordinates</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => handleToggleShopEnabled(shop.id)}
+                            className={`rpg-btn text-xs py-1 px-3 ${shop.enabled ? 'rpg-btn-secondary border-rose-950 text-rose-400' : 'rpg-btn-primary'}`}
+                          >
+                            {shop.enabled ? 'Close Shop' : 'Open Shop'}
+                          </button>
+                          <button
+                            onClick={() => setExpandedShopId(isExpanded ? null : shop.id)}
+                            className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 border-amber-500/20 text-amber-300"
+                          >
+                            {isExpanded ? 'Hide Stock' : 'Manage Stock'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteShop(shop.id, shop.name)}
+                            className="rpg-btn rpg-btn-secondary text-xs py-1 px-2.5 border-rose-950 text-rose-400 hover:bg-rose-950/20"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
 
-              {game.travelState ? (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400">Traveling to {targetLocation?.name}</span>
-                    <span className="text-amber-400 font-semibold">{getRemainingTravelTime()}s remaining</span>
-                  </div>
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-white/5 space-y-4">
+                          {/* Stock item form */}
+                          <div className="bg-black/20 p-3 rounded space-y-3">
+                            <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Add Item from Catalogue</h4>
+                            <div className="b-wrap flex flex-wrap items-center gap-2">
+                              <select
+                                className="rpg-input rpg-select text-xs flex-1 min-w-[200px]"
+                                value={shopStockItemSelect}
+                                onChange={(e) => setShopStockItemSelect(e.target.value)}
+                              >
+                                <option value="" disabled>-- Select Catalog Item --</option>
+                                {game.store.map(item => (
+                                  <option key={item.id} value={item.id}>
+                                    {item.name} ({item.cost} {item.currency})
+                                  </option>
+                                ))}
+                              </select>
 
-                  <div className="travel-progress-bar">
-                    <div
-                      className="travel-progress-fill"
-                      style={{ width: `${getTravelProgress()}%` }}
-                    ></div>
-                  </div>
+                              <div className="flex items-center gap-1">
+                                <label className="text-xs text-slate-400">Qty:</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  disabled={shopStockUnlimited}
+                                  className="rpg-input text-xs w-16 text-center"
+                                  value={shopStockQty}
+                                  onChange={(e) => setShopStockQty(Math.max(1, Number(e.target.value)))}
+                                />
+                              </div>
 
-                  <button
-                    onClick={handleCancelTravel}
-                    className="rpg-btn rpg-btn-secondary w-full py-1 text-xs text-rose-400 border-rose-950/40 hover:bg-rose-950/20"
-                  >
-                    Abort Travel Journey
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-400">Destination</label>
-                    <select
-                      className="rpg-input rpg-select text-xs w-full"
-                      value={selectedTravelTarget}
-                      onChange={(e) => setSelectedTravelTarget(e.target.value)}
-                    >
-                      <option value="">-- Select Destination --</option>
-                      {game.locations
-                        .filter(l => l.id !== game.partyLocation)
-                        .map(l => (
-                          <option key={l.id} value={l.id}>{l.name}</option>
-                        ))
-                      }
-                    </select>
-                  </div>
+                              <label className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={shopStockUnlimited}
+                                  onChange={(e) => setShopStockUnlimited(e.target.checked)}
+                                />
+                                Unlimited
+                              </label>
 
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-400">Travel Speed / Time (seconds)</label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="300"
-                      className="rpg-input text-xs w-full"
-                      value={travelDuration}
-                      onChange={(e) => setTravelDuration(Number(e.target.value) || 10)}
-                    />
-                  </div>
+                              <button
+                                onClick={() => handleAddStockToShop(shop.id)}
+                                className="rpg-btn rpg-btn-primary text-xs py-1 px-4"
+                                disabled={!shopStockItemSelect}
+                              >
+                                ＋ Stock Wares
+                              </button>
+                            </div>
+                          </div>
 
-                  <button
-                    onClick={handleStartTravel}
-                    disabled={!selectedTravelTarget}
-                    className="rpg-btn rpg-btn-primary w-full py-2 text-xs"
-                  >
-                    🏹 Set Party in Motion
-                  </button>
-                </div>
-              )}
-            </div>
+                          {/* Stock list */}
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Current Stock ({shop.inventory.length} items)</h4>
+                            {shop.inventory.length === 0 ? (
+                              <p className="text-xs text-slate-500 italic py-2 text-center">Shop inventory is currently empty. Stock items from the catalogue above.</p>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
+                                {shop.inventory.map(item => (
+                                  <div key={item.id} className="bg-black/10 border border-white/5 p-2 rounded flex justify-between items-center">
+                                    <div>
+                                      <span className="text-xs font-medium text-slate-200">{item.name}</span>
+                                      <div className="text-[10px] text-slate-500 uppercase mt-0.5">
+                                        {item.category} • {item.cost} {item.currency}
+                                      </div>
+                                    </div>
 
-            {/* List coordinates/nodes info */}
-            <div className="space-y-3">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest border-b border-white/5 pb-1">Known Locations</h3>
-              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                {game.locations.map(loc => (
-                  <div key={loc.id} className="text-xs p-2 bg-white/5 rounded border border-white/5">
-                    <span className="font-fantasy text-slate-200">{loc.name}</span>
-                    <span className="text-sm text-slate-500 float-right font-mono">X: {loc.x}, Y: {loc.y}</span>
-                  </div>
-                ))}
+                                    <div className="flex items-center gap-3">
+                                      {item.stock === null ? (
+                                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded">Unlimited</span>
+                                      ) : (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={() => handleUpdateShopStockLevel(shop.id, item.id, -1)}
+                                            className="w-5 h-5 flex items-center justify-center bg-white/5 border border-white/10 text-slate-300 text-xs rounded hover:bg-white/10"
+                                          >
+                                            -
+                                          </button>
+                                          <span className="text-xs text-slate-200 font-semibold w-6 text-center">{item.stock}</span>
+                                          <button
+                                            onClick={() => handleUpdateShopStockLevel(shop.id, item.id, 1)}
+                                            className="w-5 h-5 flex items-center justify-center bg-white/5 border border-white/10 text-slate-300 text-xs rounded hover:bg-white/10"
+                                          >
+                                            +
+                                          </button>
+                                        </div>
+                                      )}
+                                      <button
+                                        onClick={() => handleRemoveStockFromShop(shop.id, item.id, item.name)}
+                                        className="text-rose-500 hover:text-rose-300 text-xs font-bold leading-none ml-1 bg-transparent border-none cursor-pointer"
+                                        title="Remove item from shop inventory"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
+
+      {/* 2. MAP & TRAVEL */}
+      {activeTab === 'map' && (() => {
+        const selectedLoc = game.locations.find(l => l.id === selectedDMLocId);
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Map canvas */}
+            <div className="lg:col-span-2 glass-panel p-4 flex flex-col space-y-3">
+              <div>
+                <h2 className="text-lg text-gold font-fantasy">Campaign World Map</h2>
+                <p className="text-xs text-slate-400">
+                  Click on any landmark to edit details, delete it, or set it as travel destination. Click on empty space to establish a new landmark.
+                </p>
+              </div>
+
+              <div
+                className="map-container relative cursor-crosshair"
+                style={{ backgroundImage: `url(${game.mapUrl || fantasyMap})` }}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const x = Math.round(e.clientX - rect.left);
+                  const y = Math.round(e.clientY - rect.top);
+                  
+                  setSelectedDMLocId(null);
+                  setIsEditingLandmark(false);
+                  
+                  setNewLocX(x);
+                  setNewLocY(y);
+                  setNewLocName('');
+                  setNewLocDesc('');
+                }}
+              >
+                {/* Place nodes */}
+                {game.locations.map(loc => {
+                  const isActive = game.partyLocation === loc.id;
+                  const isSelected = selectedDMLocId === loc.id;
+                  return (
+                    <div
+                      key={loc.id}
+                      className={`map-node ${isActive ? 'active' : ''} ${isSelected ? 'border-amber-400 scale-110 shadow-lg' : ''} cursor-pointer`}
+                      style={{ left: `${loc.x}px`, top: `${loc.y}px` }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedDMLocId(loc.id);
+                        setNewLocX(null);
+                        setNewLocY(null);
+                        setEditLocName(loc.name);
+                        setEditLocDesc(loc.description || '');
+                        setIsEditingLandmark(false);
+                      }}
+                      title={`${loc.name}: ${loc.description}`}
+                    >
+                      <div className="map-node-inner"></div>
+                      <div className="map-node-label">{loc.name}</div>
+                    </div>
+                  );
+                })}
+
+                {/* Glowing party traveler icon */}
+                {game.travelState && (
+                  <div
+                    className="map-party-indicator animate-bounce"
+                    style={{
+                      left: `${(() => {
+                        const fromLoc = game.locations.find(l => l.id === game.travelState.from);
+                        const toLoc = game.locations.find(l => l.id === game.travelState.to);
+                        const progress = getTravelProgress() / 100;
+                        return fromLoc.x + (toLoc.x - fromLoc.x) * progress;
+                      })()
+                        }px`,
+                      top: `${(() => {
+                        const fromLoc = game.locations.find(l => l.id === game.travelState.from);
+                        const toLoc = game.locations.find(l => l.id === game.travelState.to);
+                        const progress = getTravelProgress() / 100;
+                        return fromLoc.y + (toLoc.y - fromLoc.y) * progress;
+                      })()
+                        }px`
+                    }}
+                  >
+                    ⛺
+                  </div>
+                )}
+
+                {/* Temporary pin when clicking empty space */}
+                {newLocX !== null && newLocY !== null && (
+                  <div
+                    className="absolute w-3 h-3 bg-amber-400 border border-black rounded-full animate-ping pointer-events-none"
+                    style={{ left: `${newLocX - 6}px`, top: `${newLocY - 6}px` }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Map Details & Travel coordinator sidebar */}
+            <div className="glass-panel p-5 space-y-5 h-fit">
+              {/* Landmark Selection / Edit / Travel Panel */}
+              {selectedLoc ? (
+                <div className="border border-white/5 bg-amber-950/10 p-4 rounded-lg space-y-3">
+                  <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                    <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-widest font-fantasy">Inspecting Landmark</h3>
+                    <button
+                      onClick={() => setSelectedDMLocId(null)}
+                      className="text-xs text-slate-400 hover:text-slate-200 bg-transparent border-none cursor-pointer"
+                    >
+                      Deselect
+                    </button>
+                  </div>
+
+                  {isEditingLandmark ? (
+                    <form onSubmit={handleSaveLandmarkEdits} className="space-y-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-slate-400">Landmark Name</label>
+                        <input
+                          type="text"
+                          className="rpg-input text-xs"
+                          value={editLocName}
+                          onChange={(e) => setEditLocName(e.target.value)}
+                          required
+                        />
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-slate-400">Lore / Description</label>
+                        <textarea
+                          className="rpg-input text-xs h-16 resize-none"
+                          value={editLocDesc}
+                          onChange={(e) => setEditLocDesc(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button type="submit" className="rpg-btn rpg-btn-primary text-xs py-1 px-3 flex-1">
+                          Save Changes
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingLandmark(false)}
+                          className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 flex-1"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="space-y-2.5">
+                      <h4 className="text-md font-fantasy text-white">{selectedLoc.name}</h4>
+                      <p className="text-xs text-slate-300 leading-relaxed italic">
+                        "{selectedLoc.description || 'No description recorded.'}"
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-mono">Coordinates: ({selectedLoc.x}, {selectedLoc.y})</p>
+                      
+                      <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+                        {game.partyLocation !== selectedLoc.id && (
+                          <button
+                            onClick={() => handleStartTravelToLoc(selectedLoc.id, selectedLoc.name)}
+                            disabled={!!game.travelState}
+                            className="rpg-btn rpg-btn-primary w-full py-1.5 text-xs"
+                          >
+                            🏹 Set as Travel Destination
+                          </button>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setEditLocName(selectedLoc.name);
+                              setEditLocDesc(selectedLoc.description || '');
+                              setIsEditingLandmark(true);
+                            }}
+                            className="rpg-btn rpg-btn-secondary text-xs py-1 flex-1 border-amber-500/20 text-amber-300"
+                          >
+                            ⚙ Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteLocation(selectedLoc.id, selectedLoc.name)}
+                            disabled={selectedLoc.id === 'loc_start'}
+                            className="rpg-btn rpg-btn-secondary text-xs py-1 flex-1 border-rose-950 text-rose-400 hover:bg-rose-950/20 disabled:opacity-40"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : newLocX !== null && newLocY !== null ? (
+                <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
+                  <div className="flex justify-between items-center border-b border-white/5 pb-1">
+                    <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Establish Landmark</h3>
+                    <button
+                      onClick={() => { setNewLocX(null); setNewLocY(null); }}
+                      className="text-xs text-slate-400 hover:text-slate-200 bg-transparent border-none cursor-pointer font-bold ml-2"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    You clicked on coordinates **X: {newLocX}, Y: {newLocY}**. Establish a new landmark or town at this location?
+                  </p>
+
+                  <form onSubmit={handleCreateLandmark} className="space-y-3 pt-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-slate-400">Landmark Name</label>
+                      <input
+                        type="text"
+                        className="rpg-input text-xs"
+                        placeholder="e.g. Shadowdale"
+                        value={newLocName}
+                        onChange={(e) => setNewLocName(e.target.value)}
+                        required
+                      />
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-slate-400">Lore Description</label>
+                      <textarea
+                        className="rpg-input text-xs h-16 resize-none"
+                        placeholder="Describe the city, landmarks, or secrets..."
+                        value={newLocDesc}
+                        onChange={(e) => setNewLocDesc(e.target.value)}
+                      />
+                    </div>
+
+                    <button type="submit" className="rpg-btn rpg-btn-primary w-full py-1.5 text-xs">
+                      ＋ Place Landmark
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div className="border border-white/5 bg-black/20 p-4 rounded-lg text-center text-xs text-slate-400 italic">
+                  💡 Select a landmark on the map to edit details or dispatch travel. Click empty space to add new cities.
+                </div>
+              )}
+
+              {/* Map image settings */}
+              <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
+                <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Map Layout</h3>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] text-slate-400">Upload custom map image (.png, max 1.5MB)</label>
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="file"
+                      accept="image/png"
+                      className="rpg-input text-xs w-full"
+                      onChange={handleMapUpload}
+                    />
+                    {game.mapUrl && (
+                      <button
+                        type="button"
+                        onClick={handleResetMap}
+                        className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 border-rose-950 text-rose-400 hover:bg-rose-950/20"
+                      >
+                        Reset to Default Map
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Party Status</h2>
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm">
+                    <span className="text-slate-400">Current Position:</span>{" "}
+                    <span className="font-fantasy text-amber-300">{activeLocation ? activeLocation.name : 'Unknown Wilderness'}</span>
+                  </p>
+                  <p className="text-xs text-slate-400 italic font-medium">
+                    "{activeLocation ? activeLocation.description : 'A mysterious area untouched by cartographers.'}"
+                  </p>
+                </div>
+              </div>
+
+              {/* Travel simulation progress widget */}
+              {game.travelState && (
+                <div className="border border-white/5 bg-rose-950/15 p-4 rounded-lg space-y-3">
+                  <h3 className="text-xs font-semibold text-rose-300 uppercase tracking-widest">Active Travel Journey</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Traveling to {targetLocation?.name}</span>
+                      <span className="text-amber-400 font-semibold">{getRemainingTravelTime()}s remaining</span>
+                    </div>
+
+                    <div className="travel-progress-bar">
+                      <div
+                        className="travel-progress-fill"
+                        style={{ width: `${getTravelProgress()}%` }}
+                      ></div>
+                    </div>
+
+                    <button
+                      onClick={handleCancelTravel}
+                      className="rpg-btn rpg-btn-secondary w-full py-1 text-xs text-rose-400 border-rose-950/40 hover:bg-rose-950/20"
+                    >
+                      Abort Travel Journey
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Travel form */}
+              {!selectedLoc && !game.travelState && (
+                <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-4">
+                  <h3 className="text-sm text-gold font-fantasy">Dispatch Party Travel</h3>
+                  <div className="space-y-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-slate-400">Destination</label>
+                      <select
+                        className="rpg-input rpg-select text-xs w-full"
+                        value={selectedTravelTarget}
+                        onChange={(e) => setSelectedTravelTarget(e.target.value)}
+                      >
+                        <option value="">-- Select Destination --</option>
+                        {game.locations
+                          .filter(l => l.id !== game.partyLocation)
+                          .map(l => (
+                            <option key={l.id} value={l.id}>{l.name}</option>
+                          ))
+                        }
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-slate-400">Travel Speed / Time (seconds)</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="300"
+                        className="rpg-input text-xs w-full"
+                        value={travelDuration}
+                        onChange={(e) => setTravelDuration(Number(e.target.value) || 10)}
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleStartTravel}
+                      disabled={!selectedTravelTarget}
+                      className="rpg-btn rpg-btn-primary w-full py-2 text-xs"
+                    >
+                      🏹 Set Party in Motion
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* List coordinates/nodes info */}
+              <div className="space-y-3">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest border-b border-white/5 pb-1">Known Locations</h3>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {game.locations.map(loc => (
+                    <div key={loc.id} className="text-xs p-2 bg-white/5 rounded border border-white/5 flex justify-between items-center">
+                      <div>
+                        <span className="font-fantasy text-slate-200 block">{loc.name}</span>
+                        <span className="text-[10px] text-slate-400 italic max-w-[180px] block truncate">{loc.description}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-500 font-mono">({loc.x}, {loc.y})</span>
+                        {loc.id !== 'loc_start' && (
+                          <button
+                            onClick={() => handleDeleteLocation(loc.id, loc.name)}
+                            className="text-rose-500 hover:text-rose-300 text-xs font-bold leading-none bg-transparent border-none cursor-pointer"
+                            title="Delete landmark"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 3. PLAYERS TRACKER */}
       {activeTab === 'players' && (

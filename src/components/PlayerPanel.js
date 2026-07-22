@@ -16,6 +16,10 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
   const [shopSearch, setShopSearch] = useState('');
   const [shopSort, setShopSort] = useState('price-asc');
   const [purchaseError, setPurchaseError] = useState('');
+  const [selectedShopId, setSelectedShopId] = useState('');
+
+  // Map customization selected location for reading lore
+  const [selectedLocId, setSelectedLocId] = useState(null);
 
   // HP Adjuster
   const [hpChangeAmount, setHpChangeAmount] = useState(1);
@@ -29,10 +33,17 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
   };
 
   // Reload character and campaign status
-  const reloadState = () => {
-    setGame(db.getGame(gameId));
-    setCharacter(db.getCharacter(gameId, username));
-    setLogs(db.getLogs(gameId));
+  const reloadState = async () => {
+    try {
+      const g = await db.getGame(gameId);
+      setGame(g);
+      const char = await db.getCharacter(gameId, username);
+      setCharacter(char);
+      const logsList = await db.getLogs(gameId);
+      setLogs(logsList);
+    } catch (e) {
+      console.error("Failed to reload player state:", e);
+    }
   };
 
   useEffect(() => {
@@ -44,10 +55,13 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
 
     // Interval for travel updates
     const timer = setInterval(() => {
-      const g = db.getGame(gameId);
-      if (g && g.travelState) {
-        reloadState();
-      }
+      const checkTravel = async () => {
+        const g = await db.getGame(gameId);
+        if (g && g.travelState) {
+          await reloadState();
+        }
+      };
+      checkTravel();
     }, 1000);
 
     return () => {
@@ -101,7 +115,7 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
   };
 
   // Adjust HP
-  const handleAdjustHp = (type) => {
+  const handleAdjustHp = async (type) => {
     const amount = Number(hpChangeAmount) || 1;
     let newHp = character.hpCurrent;
 
@@ -111,17 +125,25 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
       newHp = Math.max(0, character.hpCurrent - amount);
     }
 
-    db.updateCharacter(gameId, username, { hpCurrent: newHp });
-    reloadState();
+    try {
+      await db.updateCharacter(gameId, username, { ...character, hpCurrent: newHp });
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // Inventory actions
-  const handleToggleEquip = (itemId) => {
-    const res = db.toggleEquipItem(gameId, username, itemId);
-    if (res.success) {
-      reloadState();
-    } else {
-      addToast(res.error);
+  const handleToggleEquip = async (itemId) => {
+    try {
+      const res = await db.toggleEquipItem(gameId, username, itemId);
+      if (res.success) {
+        await reloadState();
+      } else {
+        addToast(res.error);
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -162,33 +184,51 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
     return parts.join(" ");
   };
 
-  const handleDiscardItem = (itemId) => {
+  const handleDiscardItem = async (itemId) => {
     if (window.confirm("Are you sure you want to discard one of this item?")) {
-      db.discardItem(gameId, username, itemId);
-      reloadState();
+      try {
+        await db.discardItem(gameId, username, itemId);
+        await reloadState();
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
   // Shop purchase
-  const handleBuy = (item) => {
+  const handleBuy = async (item) => {
     setPurchaseError('');
-    const res = db.buyItem(gameId, username, item);
-    if (res.success) {
-      reloadState();
-      // Show buying success animation or note
-    } else {
-      setPurchaseError(res.error);
+    const activeShops = (game.shops || []).filter(s => s.enabled);
+    const currentShop = activeShops.find(s => s.id === selectedShopId) || activeShops[0];
+    if (!currentShop) {
+      setPurchaseError('No active shops available.');
+      return;
+    }
+    try {
+      const res = await db.buyItemFromShop(gameId, username, currentShop.id, item.id);
+      if (res.success) {
+        await reloadState();
+      } else {
+        setPurchaseError(res.error);
+      }
+    } catch (err) {
+      setPurchaseError(err.message);
     }
   };
 
   // Filter and sort items in shop
   const getFilteredShopItems = () => {
-    let items = [...game.store];
+    if (!game) return [];
+    const activeShops = (game.shops || []).filter(s => s.enabled);
+    const currentShop = activeShops.find(s => s.id === selectedShopId) || activeShops[0];
+    if (!currentShop) return [];
+
+    let items = [...currentShop.inventory];
 
     // Search
     if (shopSearch.trim()) {
       const q = shopSearch.toLowerCase();
-      items = items.filter(i => i.name.toLowerCase().includes(q) || i.description.toLowerCase().includes(q));
+      items = items.filter(i => i.name.toLowerCase().includes(q) || (i.description && i.description.toLowerCase().includes(q)));
     }
 
     // Category
@@ -198,7 +238,6 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
 
     // Sort
     items.sort((a, b) => {
-      // Normalize cost to GP for comparison
       const getCostInGp = (item) => {
         if (item.currency === 'sp') return item.cost / 10;
         if (item.currency === 'cp') return item.cost / 100;
@@ -232,6 +271,7 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
 
   const activeLocation = game.locations.find(l => l.id === game.partyLocation);
   const targetLocation = game.travelState ? game.locations.find(l => l.id === game.travelState.to) : null;
+  const selectedLocation = game.locations.find(l => l.id === selectedLocId) || activeLocation;
 
   // Active equipped weapon
   const activeWeapon = character.inventory.find(i => i.category === 'Weapon' && i.equipped);
@@ -604,76 +644,110 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
       )}
 
       {/* 3. MERCHANT SHOP */}
-      {activeTab === 'shop' && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Shop filters sidebar */}
-          <div className="glass-panel p-5 h-fit space-y-4">
-            <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Merchant Catalogue</h2>
+      {activeTab === 'shop' && (() => {
+        const activeShops = (game.shops || []).filter(s => s.enabled);
+        const currentShop = activeShops.find(s => s.id === selectedShopId) || activeShops[0];
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-slate-400 uppercase font-semibold">Search wares</label>
-              <input
-                type="text"
-                placeholder="Search..."
-                className="rpg-input text-xs w-96"
-                value={shopSearch}
-                onChange={(e) => setShopSearch(e.target.value)}
-              />
+        if (activeShops.length === 0) {
+          return (
+            <div className="glass-panel p-12 text-center text-slate-500 text-sm border-dashed border-white/5">
+              🏪 No shops are currently open in this campaign. Check back later!
             </div>
+          );
+        }
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-slate-400 uppercase font-semibold">Category</label>
-              <div className="flex btn-wrap flex-wrap gap-1">
-                {['All', 'Weapon', 'Armor', 'Shield', 'Consumable', 'Wondrous Item'].map(c => (
-                  <button
-                    key={c}
-                    onClick={() => setShopCategory(c)}
-                    className={`rpg-btn py-1 px-2.5 text-md ${shopCategory === c ? 'rpg-btn-primary' : 'rpg-btn-secondary'}`}
-                  >
-                    {c}
-                  </button>
-                ))}
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Shop filters sidebar */}
+            <div className="glass-panel p-5 h-fit space-y-4">
+              <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Merchant Catalogue</h2>
+
+              {/* Shop Selector */}
+              <div className="flex flex-col gap-1.5 border-b border-white/5 pb-3">
+                <label className="text-xs text-slate-400 uppercase font-semibold">Select Store</label>
+                <select
+                  className="rpg-input rpg-select text-xs"
+                  value={selectedShopId || (activeShops[0] ? activeShops[0].id : '')}
+                  onChange={(e) => {
+                    setSelectedShopId(e.target.value);
+                    setPurchaseError('');
+                  }}
+                >
+                  {activeShops.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                {currentShop && (
+                  <p className="text-[11px] text-slate-400 italic mt-1">{currentShop.description || "No description."}</p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-slate-400 uppercase font-semibold">Search wares</label>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  className="rpg-input text-xs w-full"
+                  value={shopSearch}
+                  onChange={(e) => setShopSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-slate-400 uppercase font-semibold">Category</label>
+                <div className="flex btn-wrap flex-wrap gap-1">
+                  {['All', 'Weapon', 'Armor', 'Shield', 'Consumable', 'Wondrous Item'].map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setShopCategory(c)}
+                      className={`rpg-btn py-1 px-2.5 text-md ${shopCategory === c ? 'rpg-btn-primary' : 'rpg-btn-secondary'}`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-slate-400 uppercase font-semibold">Sort By</label>
+                <select
+                  className="rpg-input rpg-select text-xs"
+                  value={shopSort}
+                  onChange={(e) => setShopSort(e.target.value)}
+                >
+                  <option value="name-asc">Alphabetical (A-Z)</option>
+                  <option value="price-asc">Price (Low to High)</option>
+                  <option value="price-desc">Price (High to Low)</option>
+                </select>
+              </div>
+
+              <div className="b-wrap bg-black/30 p-3 border border-white/5 rounded">
+                <span className="text-xs text-slate-400 block font-fantasy">Your Available Gold:</span>
+                <span className="coin coin-gp text-amber-300 font-bold block mt-1.5 text-base">
+                  {character.gold.gp} gp, {character.gold.sp} sp, {character.gold.cp} cp
+                </span>
               </div>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-slate-400 uppercase font-semibold">Sort By</label>
-              <select
-                className="rpg-input rpg-select text-xs"
-                value={shopSort}
-                onChange={(e) => setShopSort(e.target.value)}
-              >
-                <option value="name-asc">Alphabetical (A-Z)</option>
-                <option value="price-asc">Price (Low to High)</option>
-                <option value="price-desc">Price (High to Low)</option>
-              </select>
-            </div>
+            {/* Shop inventory grid */}
+            <div className="lg:col-span-3 glass-panel p-5 space-y-4">
+              <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">
+                Merchant Wares • {currentShop?.name || 'Wares'}
+              </h2>
 
-            <div className="b-wrap bg-black/30 p-3 border border-white/5 rounded">
-              <span className="text-xs text-slate-400 block font-fantasy">Your Available Gold:</span>
-              <span className="coin coin-gp text-amber-300 font-bold block mt-1.5 text-base">
-                {character.gold.gp} gp, {character.gold.sp} sp, {character.gold.cp} cp
-              </span>
-            </div>
-          </div>
+              {purchaseError && (
+                <div className="bg-rose-950/40 border border-rose-800 text-rose-300 text-xs px-3 py-2 rounded">
+                  {purchaseError}
+                </div>
+              )}
 
-          {/* Shop inventory grid */}
-          <div className="lg:col-span-3 glass-panel p-5 space-y-4">
-            <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Merchant Wares</h2>
-
-            {purchaseError && (
-              <div className="bg-rose-950/40 border border-rose-800 text-rose-300 text-xs px-3 py-2 rounded">
-                {purchaseError}
-              </div>
-            )}
-
-            {getFilteredShopItems().length === 0 ? (
-              <div className="text-center py-20 text-slate-500 border border-dashed border-white/5 rounded-lg text-sm">
-                No store items found matching filters.
-              </div>
-            ) : (
-              <div className="tc-wrap-2 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2">
-                {getFilteredShopItems().map(item => {
+              {getFilteredShopItems().length === 0 ? (
+                <div className="text-center py-20 text-slate-500 border border-dashed border-white/5 rounded-lg text-sm">
+                  No store items found matching filters.
+                </div>
+              ) : (
+                <div className="tc-wrap-2 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2">
+                  {getFilteredShopItems().map(item => {
                   const outOfStock = item.stock !== null && item.stock <= 0;
                   return (
                     <div
@@ -714,107 +788,125 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
             )}
           </div>
         </div>
-      )}
+      );
+    })()}
 
       {/* 4. MAP & TRAVEL */}
-      {activeTab === 'map' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Map details */}
-          <div className="lg:col-span-2 glass-panel p-4 flex flex-col">
-            <h2 className="text-lg text-gold font-fantasy mb-3">Party Journey Map</h2>
+      {activeTab === 'map' && (() => {
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Map canvas */}
+            <div className="lg:col-span-2 glass-panel p-4 flex flex-col">
+              <h2 className="text-lg text-gold font-fantasy mb-3">Party Journey Map</h2>
 
-            <div
-              className="map-container"
-              style={{ backgroundImage: `url(${fantasyMap})` }}
-            >
-              {/* Place nodes */}
-              {game.locations.map(loc => {
-                const isActive = game.partyLocation === loc.id;
-                return (
+              <div
+                className="map-container relative"
+                style={{ backgroundImage: `url(${game.mapUrl || fantasyMap})` }}
+              >
+                {/* Place nodes */}
+                {game.locations.map(loc => {
+                  const isActive = game.partyLocation === loc.id;
+                  const isSelected = selectedLocation?.id === loc.id;
+                  return (
+                    <div
+                      key={loc.id}
+                      className={`map-node ${isActive ? 'active' : ''} ${isSelected ? 'border-amber-400 scale-110 shadow-lg' : ''} cursor-pointer`}
+                      style={{ left: `${loc.x}px`, top: `${loc.y}px` }}
+                      onClick={() => setSelectedLocId(loc.id)}
+                      title={`${loc.name} (Click to inspect)`}
+                    >
+                      <div className="map-node-inner"></div>
+                      <div className="map-node-label">{loc.name}</div>
+                    </div>
+                  );
+                })}
+
+                {/* Glowing party traveler icon */}
+                {game.travelState && (
                   <div
-                    key={loc.id}
-                    className={`map-node ${isActive ? 'active' : ''}`}
-                    style={{ left: `${loc.x}px`, top: `${loc.y}px` }}
+                    className="map-party-indicator animate-bounce"
+                    style={{
+                      left: `${(() => {
+                        const fromLoc = game.locations.find(l => l.id === game.travelState.from);
+                        const toLoc = game.locations.find(l => l.id === game.travelState.to);
+                        const progress = getTravelProgress() / 100;
+                        return fromLoc.x + (toLoc.x - fromLoc.x) * progress;
+                      })()
+                        }px`,
+                      top: `${(() => {
+                        const fromLoc = game.locations.find(l => l.id === game.travelState.from);
+                        const toLoc = game.locations.find(l => l.id === game.travelState.to);
+                        const progress = getTravelProgress() / 100;
+                        return fromLoc.y + (toLoc.y - fromLoc.y) * progress;
+                      })()
+                        }px`
+                    }}
                   >
-                    <div className="map-node-inner"></div>
-                    <div className="map-node-label">{loc.name}</div>
+                    ⛺
                   </div>
-                );
-              })}
-
-              {/* Glowing party traveler icon */}
-              {game.travelState && (
-                <div
-                  className="map-party-indicator animate-bounce"
-                  style={{
-                    left: `${(() => {
-                      const fromLoc = game.locations.find(l => l.id === game.travelState.from);
-                      const toLoc = game.locations.find(l => l.id === game.travelState.to);
-                      const progress = getTravelProgress() / 100;
-                      return fromLoc.x + (toLoc.x - fromLoc.x) * progress;
-                    })()
-                      }px`,
-                    top: `${(() => {
-                      const fromLoc = game.locations.find(l => l.id === game.travelState.from);
-                      const toLoc = game.locations.find(l => l.id === game.travelState.to);
-                      const progress = getTravelProgress() / 100;
-                      return fromLoc.y + (toLoc.y - fromLoc.y) * progress;
-                    })()
-                      }px`
-                  }}
-                >
-                  ⛺
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Travel sidebar */}
-          <div className="glass-panel p-5 space-y-5 h-fit">
-            <div>
-              <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Party Coordinates</h2>
-              <div className="mt-3 space-y-2">
-                <p className="text-sm">
-                  <span className="text-slate-400">Current Base:</span>{" "}
-                  <span className="font-fantasy text-amber-300">{activeLocation ? activeLocation.name : 'Unknown Wilderness'}</span>
-                </p>
-                <p className="text-xs text-slate-400 italic">
-                  "{activeLocation ? activeLocation.description : 'A mysterious area untouched by cartographers.'}"
-                </p>
+                )}
               </div>
             </div>
 
-            {/* Travel simulation progress widget */}
-            <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Travel Indicator</h3>
-
-              {game.travelState ? (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400">Moving to {targetLocation?.name}</span>
-                    <span className="text-amber-400 font-semibold">{getRemainingTravelTime()}s left</span>
-                  </div>
-
-                  <div className="travel-progress-bar">
-                    <div
-                      className="travel-progress-fill"
-                      style={{ width: `${getTravelProgress()}%` }}
-                    ></div>
-                  </div>
-
-                  <p className="text-md text-slate-400 italic">
-                    The Dungeon Master has set the coordinates. Hold fast, adventuring party is moving!
+            {/* Travel sidebar */}
+            <div className="glass-panel p-5 space-y-5 h-fit">
+              <div>
+                <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Party Coordinates</h2>
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm">
+                    <span className="text-slate-400">Current Base:</span>{" "}
+                    <span className="font-fantasy text-amber-300">{activeLocation ? activeLocation.name : 'Unknown Wilderness'}</span>
+                  </p>
+                  <p className="text-xs text-slate-400 italic">
+                    "{activeLocation ? activeLocation.description : 'A mysterious area untouched by cartographers.'}"
                   </p>
                 </div>
-              ) : (
-                <p className="text-xs text-slate-400 italic">
-                  Party is currently stationary. The DM determines travels.
-                </p>
+              </div>
+
+              {/* Landmark Lore inspection details */}
+              {selectedLocation && (
+                <div className="border border-white/5 bg-amber-950/10 p-4 rounded-lg space-y-2">
+                  <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-widest font-fantasy">Selected Landmark</h3>
+                  <h4 className="text-sm font-fantasy text-slate-100">{selectedLocation.name}</h4>
+                  <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                    {selectedLocation.description || "No specific lore has been documented for this landmark."}
+                  </p>
+                  <span className="text-[10px] text-slate-500 font-mono block">Coordinates: X: {selectedLocation.x}, Y: {selectedLocation.y}</span>
+                </div>
               )}
+
+              {/* Travel simulation progress widget */}
+              <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
+                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Travel Indicator</h3>
+
+                {game.travelState ? (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-400">Moving to {targetLocation?.name}</span>
+                      <span className="text-amber-400 font-semibold">{getRemainingTravelTime()}s left</span>
+                    </div>
+
+                    <div className="travel-progress-bar">
+                      <div
+                        className="travel-progress-fill"
+                        style={{ width: `${getTravelProgress()}%` }}
+                      ></div>
+                    </div>
+
+                    <p className="text-md text-slate-400 italic">
+                      The Dungeon Master has set the coordinates. Hold fast, adventuring party is moving!
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">
+                    Party is currently stationary. The DM determines travels.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 5. SCROLLS */}
       {activeTab === 'logs' && (

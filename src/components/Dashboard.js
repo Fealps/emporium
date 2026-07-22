@@ -25,32 +25,41 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
   const [charError, setCharError] = useState('');
 
   // Load all campaigns
-  const loadGames = () => {
-    setGames(db.getGames());
+  const loadGames = async () => {
+    try {
+      const gamesList = await db.getGames();
+      setGames(gamesList);
+    } catch (e) {
+      console.error("Failed to load campaigns:", e);
+    }
   };
 
   useEffect(() => {
     loadGames();
   }, []);
 
-  const handleCreateCampaign = (e) => {
+  const handleCreateCampaign = async (e) => {
     e.preventDefault();
     setCreateError('');
     if (!newGameName.trim()) {
       setCreateError("Campaign name is required.");
       return;
     }
-    const newGame = db.createGame(newGameName, newGameDesc, username);
-    setNewGameName('');
-    setNewGameDesc('');
-    setShowCreateModal(false);
-    loadGames();
+    try {
+      const newGame = await db.createGame(newGameName, newGameDesc, username);
+      setNewGameName('');
+      setNewGameDesc('');
+      setShowCreateModal(false);
+      await loadGames();
 
-    // Automatically enter game as DM
-    onSelectCampaign(newGame.id, 'dm');
+      // Automatically enter game as DM
+      onSelectCampaign(newGame.id, 'dm');
+    } catch (err) {
+      setCreateError(err.message);
+    }
   };
 
-  const handleJoinCampaign = (e) => {
+  const handleJoinCampaign = async (e) => {
     e.preventDefault();
     setJoinError('');
     const code = joinCode.trim().toUpperCase();
@@ -59,7 +68,7 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
       return;
     }
 
-    const res = db.joinGame(code, username);
+    const res = await db.joinGame(code, username);
     if (!res.success) {
       setJoinError(res.error);
       return;
@@ -78,7 +87,7 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
     }
   };
 
-  const handleCreateCharacter = (e) => {
+  const handleCreateCharacter = async (e) => {
     e.preventDefault();
     setCharError('');
     if (!charName.trim()) {
@@ -99,25 +108,29 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
 
     const hpMax = baseHp + conMod;
 
-    db.createCharacter(pendingJoinGame.id, username, {
-      name: charName,
-      race: charRace,
-      class: charClass,
-      hpMax: hpMax,
-      stats: charStats,
-      gold: { gp: charGold, sp: 0, cp: 0 }
-    });
+    try {
+      await db.createCharacter(pendingJoinGame.id, username, {
+        name: charName,
+        race: charRace,
+        class: charClass,
+        hpMax: hpMax,
+        stats: charStats,
+        gold: { gp: charGold, sp: 0, cp: 0 }
+      });
 
-    const gameId = pendingJoinGame.id;
-    setPendingJoinGame(null);
-    setCharName('');
-    setCharRace('Human');
-    setCharClass('Fighter');
-    setCharStats({ str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8 });
-    setCharGold(100);
+      const gameId = pendingJoinGame.id;
+      setPendingJoinGame(null);
+      setCharName('');
+      setCharRace('Human');
+      setCharClass('Fighter');
+      setCharStats({ str: 15, dex: 14, con: 13, int: 12, wis: 10, cha: 8 });
+      setCharGold(100);
 
-    // Enter campaign
-    onSelectCampaign(gameId, 'player');
+      // Enter campaign
+      onSelectCampaign(gameId, 'player');
+    } catch (err) {
+      setCharError(err.message);
+    }
   };
 
   // Roll 4d6 drop lowest for D&D stats

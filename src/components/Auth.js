@@ -7,7 +7,7 @@ export default function Auth({ onAuthSuccess }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
@@ -20,14 +20,14 @@ export default function Auth({ onAuthSuccess }) {
     }
 
     if (isRegistering) {
-      const res = db.register(userVal, passVal);
+      const res = await db.register(userVal, passVal);
       if (res.success) {
         onAuthSuccess(res.username);
       } else {
         setError(res.error);
       }
     } else {
-      const res = db.login(userVal, passVal);
+      const res = await db.login(userVal, passVal);
       if (res.success) {
         onAuthSuccess(res.username);
       } else {

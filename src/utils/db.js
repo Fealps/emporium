@@ -1,33 +1,21 @@
-// Mock database helper using localStorage for D&D 5e Emporium
-
+// Client database API wrapper connecting to the Docker Express backend database
 const KEYS = {
-  USERS: 'emporium_users',
-  CURRENT_USER: 'emporium_current_user',
-  GAMES: 'emporium_games',
-  CHARACTERS: 'emporium_characters',
-  LOGS: 'emporium_logs'
+  CURRENT_USER: 'emporium_current_user'
 };
 
-// --- Raw storage accessors ---
-const read = (key, defaultVal = {}) => {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultVal;
-  } catch (e) {
-    console.error("Failed to read from localStorage key:", key, e);
-    return defaultVal;
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+
+// Fetch helper wrapper with JSON parsing and custom error propagation
+const request = async (path, options = {}) => {
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP error ${res.status}`);
   }
+  return res.json();
 };
 
-const write = (key, data) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.error("Failed to write to localStorage key:", key, e);
-  }
-};
-
-// --- AUTHENTICATION ---
 export const db = {
   getAttunementLimit: (charClass, level) => {
     const normClass = charClass ? charClass.trim().toLowerCase() : '';
@@ -41,28 +29,36 @@ export const db = {
   },
 
   // Authentication operations
-  register: (username, password) => {
-    const users = read(KEYS.USERS);
-    const normalized = username.trim().toLowerCase();
-    if (!normalized || !password) return { success: false, error: "Username and password cannot be empty" };
-    if (users[normalized]) return { success: false, error: "Username already exists" };
-    
-    users[normalized] = { username: username.trim(), password };
-    write(KEYS.USERS, users);
-    
-    // Auto-login
-    write(KEYS.CURRENT_USER, username.trim());
-    return { success: true, username: username.trim() };
+  register: async (username, password) => {
+    try {
+      const res = await request('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ username, password })
+      });
+      if (res.success) {
+        localStorage.setItem(KEYS.CURRENT_USER, username.trim());
+        return { success: true, username: username.trim() };
+      }
+      return { success: false, error: 'Registration failed' };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   },
 
-  login: (username, password) => {
-    const users = read(KEYS.USERS);
-    const normalized = username.trim().toLowerCase();
-    if (!users[normalized] || users[normalized].password !== password) {
-      return { success: false, error: "Invalid username or password" };
+  login: async (username, password) => {
+    try {
+      const res = await request('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password })
+      });
+      if (res.success) {
+        localStorage.setItem(KEYS.CURRENT_USER, res.username);
+        return { success: true, username: res.username };
+      }
+      return { success: false, error: 'Login failed' };
+    } catch (e) {
+      return { success: false, error: e.message };
     }
-    write(KEYS.CURRENT_USER, users[normalized].username);
-    return { success: true, username: users[normalized].username };
   },
 
   logout: () => {
@@ -74,92 +70,56 @@ export const db = {
   },
 
   // --- GAMES (CAMPAIGNS) ---
-  getGames: () => {
-    return read(KEYS.GAMES, {});
+  getGames: async () => {
+    return request('/games');
   },
 
-  createGame: (name, description, dmUsername) => {
-    const games = read(KEYS.GAMES, {});
-    const id = "G-" + Math.floor(1000 + Math.random() * 9000);
-    
-    // Default campaign locations
-    const defaultLocations = [
-      { id: "loc_start", name: "Town of Phandalin", x: 250, y: 350, description: "A bustling frontier town built on the ruins of an old settlement." },
-      { id: "loc_forest", name: "Neverwinter Wood", x: 450, y: 200, description: "A dense, ancient forest shrouded in mystery and danger." },
-      { id: "loc_castle", name: "Cragmaw Castle", x: 600, y: 150, description: "The crumbling stronghold of the Cragmaw goblin tribe." },
-      { id: "loc_cave", name: "Wave Echo Cave", x: 300, y: 500, description: "The legendary site of the Phandelver's Pact mine." }
-    ];
-
-    games[id] = {
-      id,
-      name: name.trim(),
-      description: description.trim(),
-      dmUsername,
-      store: [], // Custom items list
-      locations: defaultLocations,
-      partyLocation: "loc_start",
-      travelState: null, // { from, to, startTime, durationMs }
-      createdAt: new Date().toISOString()
-    };
-    
-    write(KEYS.GAMES, games);
-    db.addLog(id, "System", `Campaign "${name}" created by Dungeon Master ${dmUsername}. Code: ${id}`);
-    return games[id];
+  createGame: async (name, description, dmUsername) => {
+    return request('/games', {
+      method: 'POST',
+      body: JSON.stringify({ name, description, dmUsername })
+    });
   },
 
-  joinGame: (gameId, username) => {
-    const games = read(KEYS.GAMES, {});
-    const game = games[gameId];
-    if (!game) return { success: false, error: "Campaign not found" };
-    if (game.dmUsername === username) return { success: false, error: "You cannot join your own campaign as a player" };
-    
-    // Check if character already exists for this game and user
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    
-    db.addLog(gameId, "System", `${username} joined the campaign.`);
-    return { success: true, characterExists: !!characters[charKey], game };
-  },
-
-  getGame: (gameId) => {
-    const games = read(KEYS.GAMES, {});
-    return games[gameId] || null;
-  },
-
-  updateGameStore: (gameId, storeItems) => {
-    const games = read(KEYS.GAMES, {});
-    if (games[gameId]) {
-      games[gameId].store = storeItems;
-      write(KEYS.GAMES, games);
-      return true;
+  joinGame: async (gameId, username) => {
+    try {
+      return await request(`/games/${gameId}/join`, {
+        method: 'POST',
+        body: JSON.stringify({ username })
+      });
+    } catch (e) {
+      return { success: false, error: e.message };
     }
-    return false;
   },
 
-  updateGameTravel: (gameId, travelData) => {
-    const games = read(KEYS.GAMES, {});
-    if (games[gameId]) {
-      games[gameId].travelState = travelData.travelState;
-      games[gameId].partyLocation = travelData.partyLocation;
-      write(KEYS.GAMES, games);
-      return true;
-    }
-    return false;
+  getGame: async (gameId) => {
+    return request(`/games/${gameId}`);
+  },
+
+  updateGameStore: async (gameId, storeItems) => {
+    return request(`/games/${gameId}/store`, {
+      method: 'PUT',
+      body: JSON.stringify({ store: storeItems })
+    });
+  },
+
+  updateGameTravel: async (gameId, travelData) => {
+    return request(`/games/${gameId}/travel`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        partyLocation: travelData.partyLocation,
+        travelState: travelData.travelState
+      })
+    });
   },
 
   // --- CHARACTERS ---
-  getCharacter: (gameId, username) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    return characters[charKey] || null;
+  getCharacter: async (gameId, username) => {
+    return request(`/games/${gameId}/characters/${username}`);
   },
 
-  createCharacter: (gameId, username, charData) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    
-    characters[charKey] = {
-      gameId,
+  createCharacter: async (gameId, username, charData) => {
+    const payload = {
       username,
       name: charData.name.trim(),
       race: charData.race,
@@ -180,67 +140,59 @@ export const db = {
         sp: charData.gold.sp || 0,
         cp: charData.gold.cp || 0
       },
-      inventory: [],
-      createdAt: new Date().toISOString()
+      inventory: []
     };
-    
-    write(KEYS.CHARACTERS, characters);
-    db.addLog(gameId, "System", `Player ${username} created character ${charData.name} (${charData.race} ${charData.class}).`);
-    return characters[charKey];
+    await request(`/games/${gameId}/characters`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    await db.addLog(gameId, "System", `Player ${username} created character ${charData.name} (${charData.race} ${charData.class}).`);
+    return payload;
   },
 
-  updateCharacter: (gameId, username, charUpdates) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    if (characters[charKey]) {
-      characters[charKey] = { ...characters[charKey], ...charUpdates };
-      write(KEYS.CHARACTERS, characters);
-      return characters[charKey];
-    }
-    return null;
+  updateCharacter: async (gameId, username, charUpdates) => {
+    return request(`/games/${gameId}/characters/${username}`, {
+      method: 'PUT',
+      body: JSON.stringify(charUpdates)
+    });
   },
 
-  deleteCharacter: (gameId, username) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    if (characters[charKey]) {
-      const charName = characters[charKey].name;
-      delete characters[charKey];
-      write(KEYS.CHARACTERS, characters);
-      db.addLog(gameId, "System", `Player ${username} (character ${charName}) was removed from the campaign by the Dungeon Master.`);
+  deleteCharacter: async (gameId, username) => {
+    try {
+      const char = await db.getCharacter(gameId, username);
+      const charName = char ? char.name : username;
+      await request(`/games/${gameId}/characters/${username}`, {
+        method: 'DELETE'
+      });
+      await db.addLog(gameId, "System", `Player ${username} (character ${charName}) was removed from the campaign by the Dungeon Master.`);
       return true;
+    } catch (e) {
+      console.error(e);
+      return false;
     }
-    return false;
   },
 
-  getAllCharactersInGame: (gameId) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    return Object.values(characters).filter(char => char.gameId === gameId);
+  getAllCharactersInGame: async (gameId) => {
+    return request(`/games/${gameId}/characters`);
   },
 
   // Buy item action
-  buyItem: (gameId, username, itemToBuy) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    const character = characters[charKey];
-    const games = read(KEYS.GAMES, {});
-    const game = games[gameId];
+  buyItem: async (gameId, username, itemToBuy) => {
+    const character = await db.getCharacter(gameId, username);
+    const game = await db.getGame(gameId);
 
     if (!character) return { success: false, error: "Character not found" };
     if (!game) return { success: false, error: "Campaign not found" };
 
-    // Find the item in the store
     const storeItems = [...game.store];
     const storeItemIndex = storeItems.findIndex(i => i.id === itemToBuy.id);
     if (storeItemIndex === -1) return { success: false, error: "Item is not in the store" };
-    
+
     const storeItem = storeItems[storeItemIndex];
     if (storeItem.stock !== null && storeItem.stock <= 0) {
       return { success: false, error: "Item is out of stock" };
     }
 
-    // Convert total gold to GP decimals for comparison, or perform explicit math
-    // 1 gp = 10 sp = 100 cp
     const charTotalInGp = character.gold.gp + (character.gold.sp / 10) + (character.gold.cp / 100);
     const itemCostInGp = storeItem.currency === "sp" ? storeItem.cost / 10 : (storeItem.currency === "cp" ? storeItem.cost / 100 : storeItem.cost);
 
@@ -248,8 +200,6 @@ export const db = {
       return { success: false, error: "Insufficient funds" };
     }
 
-    // Deduct funds (standard subtraction)
-    // Convert to Copper, subtract, convert back to minimize rounding issues
     let charCopper = (character.gold.gp * 100) + (character.gold.sp * 10) + character.gold.cp;
     const costCopper = Math.round(itemCostInGp * 100);
     charCopper -= costCopper;
@@ -261,7 +211,6 @@ export const db = {
 
     character.gold = { gp: newGp, sp: newSp, cp: newCp };
 
-    // Add to player inventory
     const existingInvIndex = character.inventory.findIndex(i => i.id === itemToBuy.id);
     if (existingInvIndex !== -1) {
       character.inventory[existingInvIndex].quantity = (character.inventory[existingInvIndex].quantity || 1) + 1;
@@ -273,29 +222,104 @@ export const db = {
       });
     }
 
-    // Decrease store stock
     if (storeItem.stock !== null && storeItem.stock > 0) {
       storeItem.stock -= 1;
     }
 
-    // Save changes
-    games[gameId].store = storeItems;
-    write(KEYS.GAMES, games);
-
-    characters[charKey] = character;
-    write(KEYS.CHARACTERS, characters);
-
-    db.addLog(gameId, character.name, `Bought ${storeItem.name} for ${storeItem.cost} ${storeItem.currency.toUpperCase()}.`);
+    await db.updateGameStore(gameId, storeItems);
+    await db.updateCharacter(gameId, username, character);
+    await db.addLog(gameId, character.name, `Bought ${storeItem.name} for ${storeItem.cost} ${storeItem.currency.toUpperCase()}.`);
 
     return { success: true, character, store: storeItems };
   },
 
-  // Equip item action
-  toggleEquipItem: (gameId, username, itemId) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    const character = characters[charKey];
+  buyItemFromShop: async (gameId, username, shopId, itemId) => {
+    const character = await db.getCharacter(gameId, username);
+    const game = await db.getGame(gameId);
 
+    if (!character) return { success: false, error: "Character not found" };
+    if (!game) return { success: false, error: "Campaign not found" };
+
+    const shops = game.shops || [];
+    const shopIndex = shops.findIndex(s => s.id === shopId);
+    if (shopIndex === -1) return { success: false, error: "Shop not found" };
+    const shop = shops[shopIndex];
+    if (!shop.enabled) return { success: false, error: "Shop is currently closed" };
+
+    const itemIndex = shop.inventory.findIndex(i => i.id === itemId);
+    if (itemIndex === -1) return { success: false, error: "Item is not in this shop" };
+    const storeItem = shop.inventory[itemIndex];
+
+    if (storeItem.stock !== null && storeItem.stock <= 0) {
+      return { success: false, error: "Item is out of stock" };
+    }
+
+    const charTotalInGp = character.gold.gp + (character.gold.sp / 10) + (character.gold.cp / 100);
+    const itemCostInGp = storeItem.currency === "sp" ? storeItem.cost / 10 : (storeItem.currency === "cp" ? storeItem.cost / 100 : storeItem.cost);
+
+    if (charTotalInGp < itemCostInGp) {
+      return { success: false, error: "Insufficient funds" };
+    }
+
+    let charCopper = (character.gold.gp * 100) + (character.gold.sp * 10) + character.gold.cp;
+    const costCopper = Math.round(itemCostInGp * 100);
+    charCopper -= costCopper;
+
+    const newGp = Math.floor(charCopper / 100);
+    charCopper %= 100;
+    const newSp = Math.floor(charCopper / 10);
+    const newCp = charCopper % 10;
+
+    character.gold = { gp: newGp, sp: newSp, cp: newCp };
+
+    const newBoughtId = `${itemId}_bought_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+    const existingInvIndex = character.inventory.findIndex(i => i.name === storeItem.name);
+    if (existingInvIndex !== -1) {
+      character.inventory[existingInvIndex].quantity = (character.inventory[existingInvIndex].quantity || 1) + 1;
+    } else {
+      character.inventory.push({
+        ...storeItem,
+        id: newBoughtId,
+        quantity: 1,
+        equipped: false
+      });
+    }
+
+    if (storeItem.stock !== null && storeItem.stock > 0) {
+      storeItem.stock -= 1;
+    }
+
+    await db.updateGameShops(gameId, shops);
+    await db.updateCharacter(gameId, username, character);
+    await db.addLog(gameId, character.name, `Bought ${storeItem.name} for ${storeItem.cost} ${storeItem.currency.toUpperCase()} from "${shop.name}".`);
+
+    return { success: true, character, shops };
+  },
+
+  updateGameShops: async (gameId, shops) => {
+    return request(`/games/${gameId}/shops`, {
+      method: 'PUT',
+      body: JSON.stringify({ shops })
+    });
+  },
+
+  updateGameLocations: async (gameId, locations) => {
+    return request(`/games/${gameId}/locations`, {
+      method: 'PUT',
+      body: JSON.stringify({ locations })
+    });
+  },
+
+  updateGameMapUrl: async (gameId, mapUrl) => {
+    return request(`/games/${gameId}/map-url`, {
+      method: 'PUT',
+      body: JSON.stringify({ mapUrl })
+    });
+  },
+
+  // Equip item action
+  toggleEquipItem: async (gameId, username, itemId) => {
+    const character = await db.getCharacter(gameId, username);
     if (!character) return { success: false, error: "Character not found" };
 
     const item = character.inventory.find(i => i.id === itemId);
@@ -325,7 +349,6 @@ export const db = {
       } else if (item.category === "Shield") {
         slot = "offHand";
       } else if (item.category === "Wondrous Item" || item.category === "Accessory") {
-        // Find the first empty accessory slot out of accessory1..accessory5
         const slotsUsed = character.inventory
           .filter(i => i.equipped && i.equippedSlot && i.equippedSlot.startsWith("accessory"))
           .map(i => i.equippedSlot);
@@ -343,7 +366,6 @@ export const db = {
 
       // Check Two-Handed constraints
       if (slot === "offHand") {
-        // Find if they have a two-handed weapon in mainHand
         const mainHandWeapon = character.inventory.find(i => i.equipped && (i.equippedSlot === "mainHand" || (!i.equippedSlot && i.category === "Weapon")));
         const isTwoHanded = mainHandWeapon?.stats?.properties?.includes("Two-Handed") || mainHandWeapon?.description?.toLowerCase().includes("two-handed");
         if (isTwoHanded) {
@@ -354,19 +376,17 @@ export const db = {
       if (slot === "mainHand") {
         const isTwoHanded = item.stats?.properties?.includes("Two-Handed") || item.description?.toLowerCase().includes("two-handed");
         if (isTwoHanded) {
-          // Force unequip anything in offHand
-          character.inventory.forEach(i => {
+          for (const i of character.inventory) {
             const isOffHand = i.equippedSlot === "offHand" || (!i.equippedSlot && i.category === "Shield");
             if (i.equipped && isOffHand) {
               i.equipped = false;
               i.equippedSlot = null;
-              db.addLog(gameId, character.name, `Unequipped ${i.name} to hold two-handed weapon ${item.name}.`);
+              await db.addLog(gameId, character.name, `Unequipped ${i.name} to hold two-handed weapon ${item.name}.`);
             }
-          });
+          }
         }
       }
 
-      // Unequip any item currently in that target slot (with fallback for legacy equipped items)
       if (slot === "armor" || slot === "mainHand" || slot === "offHand") {
         character.inventory.forEach(i => {
           const isSameSlot = i.equippedSlot === slot || (!i.equippedSlot && (
@@ -382,29 +402,22 @@ export const db = {
         });
       }
 
-      // Equip the item
       item.equipped = true;
       item.equippedSlot = slot;
     } else {
-      // Unequip
       item.equipped = false;
       item.equippedSlot = null;
     }
 
-    characters[charKey] = character;
-    write(KEYS.CHARACTERS, characters);
-
-    db.addLog(gameId, character.name, `${item.equipped ? 'Equipped' : 'Unequipped'} ${item.name}.${item.requiresAttunement && item.equipped ? ' (Attuned)' : ''}`);
+    await db.updateCharacter(gameId, username, character);
+    await db.addLog(gameId, character.name, `${item.equipped ? 'Equipped' : 'Unequipped'} ${item.name}.${item.requiresAttunement && item.equipped ? ' (Attuned)' : ''}`);
 
     return { success: true, character };
   },
 
   // Sell/Discard item action
-  discardItem: (gameId, username, itemId) => {
-    const characters = read(KEYS.CHARACTERS, {});
-    const charKey = `${gameId}_${username.toLowerCase()}`;
-    const character = characters[charKey];
-
+  discardItem: async (gameId, username, itemId) => {
+    const character = await db.getCharacter(gameId, username);
     if (!character) return { success: false, error: "Character not found" };
 
     const itemIndex = character.inventory.findIndex(i => i.id === itemId);
@@ -417,38 +430,25 @@ export const db = {
       character.inventory.splice(itemIndex, 1);
     }
 
-    characters[charKey] = character;
-    write(KEYS.CHARACTERS, characters);
-
-    db.addLog(gameId, character.name, `Discarded one ${item.name} from inventory.`);
+    await db.updateCharacter(gameId, username, character);
+    await db.addLog(gameId, character.name, `Discarded one ${item.name} from inventory.`);
 
     return { success: true, character };
   },
 
   // --- LOGGING ---
-  getLogs: (gameId) => {
-    const logs = read(KEYS.LOGS, {});
-    return logs[gameId] || [];
+  getLogs: async (gameId) => {
+    return request(`/games/${gameId}/logs`);
   },
 
-  addLog: (gameId, sender, message) => {
-    const logs = read(KEYS.LOGS, {});
-    if (!logs[gameId]) logs[gameId] = [];
-    
-    logs[gameId].push({
-      timestamp: new Date().toLocaleTimeString(),
-      sender,
-      message
+  addLog: async (gameId, sender, message) => {
+    const res = await request(`/games/${gameId}/logs`, {
+      method: 'POST',
+      body: JSON.stringify({ sender, message })
     });
     
-    // Limit log size to last 100 entries
-    if (logs[gameId].length > 100) {
-      logs[gameId] = logs[gameId].slice(-100);
-    }
-    
-    write(KEYS.LOGS, logs);
-    
-    // Custom event to notify active views
+    // Dispatch local custom event to notify React view instances in same browser session
     window.dispatchEvent(new CustomEvent('emporium_db_log', { detail: { gameId } }));
+    return res;
   }
 };

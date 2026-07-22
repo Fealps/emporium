@@ -1,43 +1,41 @@
 # 🏰 D&D 5e Campaign Emporium
 
-A premium, interactive web application designed for Dungeon Masters (DMs) and players to manage campaigns, characters, economies, and travel in a D&D 5e setting. The application features a stunning glassmorphism interface, custom game rules integration, and a mock database architecture running entirely in the browser.
+A premium, full-stack interactive web application designed for Dungeon Masters (DMs) and players to manage campaigns, characters, economies, and travels in a D&D 5e setting. The application features a stunning glassmorphism interface, custom game rules integration, and a containerized database architecture.
 
 ---
 
 ## 🌟 Key Features
 
-### 1. Campaign & User Management
-* **Role-Based Views**: Log in as a player or DM. Toggle between dashboards to manage different campaigns.
-* **Campaign Invitation**: DMs can generate unique campaign codes (e.g., `G-1234`) for players to easily join the adventure.
-* **Interactive Dashboard**: Track all active campaigns, player characters, and DM statuses from a central hub.
+### 1. Database Backend & Security
+* **PostgreSQL Persistence**: Fully containerized PostgreSQL 15 database storing campaigns, auth credentials, logs, and sheets.
+* **Stat Purser (JSONB)**: Dynamic D&D attributes, nested player inventories, custom storefront listings, and catalog configurations are persisted as highly performant SQL `JSONB` objects.
+* **Bcrypt Credentials Hashing**: Secure register/login password hashing handled on the Node server.
 
-### 2. Character Sheet & Mechanics
-* **Dynamic Character Creation**: Create characters by choosing name, race, class, level, stats (STR, DEX, CON, INT, WIS, CHA), starting HP, and initial gold.
-* **Smart Attunement Limits**: Automatic calculation of attunement slots (default is 3, but dynamically scales for specific classes like Artificers up to 6 slots at level 18+).
-* **Inventory & Equipment Slots**:
-  * Dedicated slots for Armor, Main Hand, Off-Hand, and up to 5 Wondrous/Accessory slots.
-  * **Rule Constraints**: Wielding a two-handed weapon automatically unequips off-hand shields or weapons and blocks off-hand equipping.
+### 2. Campaign & User Management
+* **Role-Based Views**: Log in as player or DM. Toggle between dashboards to manage different campaigns.
+* **Campaign Invitation**: DMs generate unique campaign codes (e.g. `GAME1234`) for players to easily join.
+* **Active Player Tracker**: DMs can view character stats, inspect players' inventories, manual-edit sheets, grant items, and kick/remove players.
 
 ### 3. Economy & Shop System (The Emporium)
-* **Custom Storefront**: DMs can list standard SRD items or create completely custom items for the campaign shop.
-* **Stock & Currency Management**: Set prices in Gold (gp), Silver (sp), or Copper (cp) with custom stock limits.
-* **Live Purchasing**: Players buy items using their inventory gold. Gold conversion (1 gp = 10 sp = 100 cp) and exact coin subtractions are computed automatically.
+* **Custom Storefront**: DMs can list standard SRD items, upload CSV custom lists, or create completely custom items with custom stocks and currencies (gp, sp, cp).
+* **Shopping Sessions**: DMs can establish and open different custom shops. Players can browse available storefronts and purchase items using their purse gold with automatic coin conversions.
+* **Smart Attunement & Slots Rules**: Automatically tracks armor, main hand, off-hand, and accessory slots. Implements two-handed constraints and class-based attunement limits.
 
 ### 4. Interactive World Map & Travel
-* **Interactive Nodes**: Explore locations like *Phandalin*, *Neverwinter Wood*, *Cragmaw Castle*, and *Wave Echo Cave*.
-* **Real-time Travel**: Track party location and manage travel state between locations.
-
-### 5. Live Campaign Logs
-* **Real-Time Logs**: View an activity stream showing system events, character creations, purchases, and DM actions.
-* **State Syncing**: Action logs use custom events to immediately notify and update active UI views.
+* **Custom Map PNG Upload**: DMs can upload local PNG map files (up to 1.5MB) to update the campaign background.
+* **Landmark Creations**: Click anywhere on the map background to define coordinates (X, Y) and establish new cities or landmarks.
+* **Lore Inspection**: Players and DMs can click map nodes to inspect lore, descriptions, and coordinates.
+* **Real-time Travel Journey**: Set party travel destinations. Travel time runs in the background with arrival logs.
 
 ---
 
 ## 🛠️ Technology Stack
 
-* **Frontend Framework**: React 18
-* **Styling**: Vanilla CSS with custom theme variables, premium glassmorphism layouts, and custom typography integrations.
-* **Database & Persistence**: Lightweight mock database wrapper utilizing browser `localStorage` (`src/utils/db.js`).
+* **Frontend**: React 18 & Vanilla CSS (Theme variables, Glassmorphism, Premium font integrations)
+* **Backend**: Node.js & Express API
+* **Database**: PostgreSQL 15
+* **Orchestration**: Docker Compose
+* **CI/CD Pipeline**: GitHub Actions
 
 ---
 
@@ -45,28 +43,41 @@ A premium, interactive web application designed for Dungeon Masters (DMs) and pl
 
 ```bash
 emporium/
-├── public/
-│   └── index.html          # HTML entry point
-└── src/
-    ├── components/
-    │   ├── Auth.js         # Register & Login component
-    │   ├── Dashboard.js    # Hub to join/create campaigns
-    │   ├── DMPanel.js      # Campaign control panel for Dungeon Masters
-    │   └── PlayerPanel.js  # Character sheets, inventory & shop for Players
-    ├── utils/
-    │   ├── db.js           # LocalStorage database helper & game rules
-    │   └── srdItems.js     # Default D&D 5e SRD items for campaign shops
-    ├── App.js              # Application router & main state controller
-    ├── index.js            # React entry point
-    └── index.css           # Global typography, color tokens, and styling
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml       # GitHub Actions CI/CD Pipeline
+├── backend/
+│   ├── Dockerfile          # Node container Dockerfile
+│   ├── package.json        # Backend dependencies
+│   └── server.js           # Express API endpoints & DB init
+├── docs/
+│   └── architecture.md     # System architecture design docs
+├── src/
+│   ├── components/
+│   │   ├── Auth.js         # Register & Login forms (async)
+│   │   ├── Dashboard.js    # Join/create campaign panel (async)
+│   │   ├── DMPanel.js      # DM controls (shops, CSV, maps, kicks) (async)
+│   │   └── PlayerPanel.js  # Player sheets, inventories & shopping (async)
+│   ├── utils/
+│   │   ├── db.js           # Async API Client wrappers
+│   │   └── srdItems.js     # Default 5e SRD items catalog
+│   ├── App.js              # Routing and authorization gate
+│   ├── index.js            # React root mount
+│   └── index.css           # Styling theme tokens
+├── Dockerfile              # Multi-stage Nginx production build Dockerfile
+├── docker-compose.yml      # Multi-container local orchestration
+├── package.json            # Frontend package manifest
+└── README.md               # Campaign guide docs
 ```
+
+For a detailed design overview, database schemas, and service flow diagrams, read the **[System Architecture Guide](file:///d:/Arquivos/Code/Pessoal/Em%20progresso/emporium/docs/architecture.md)**.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-Make sure you have [Node.js](https://nodejs.org/) installed on your machine.
+* Make sure you have [Docker and Docker Compose](https://www.docker.com/) installed on your machine.
 
 ### Installation
 1. Clone the repository:
@@ -74,27 +85,46 @@ Make sure you have [Node.js](https://nodejs.org/) installed on your machine.
    git clone https://github.com/Fealps/emporium.git
    cd emporium
    ```
-2. Install dependencies:
-   ```bash
-   yarn install
-   # or
-   npm install
-   ```
 
-### Running Locally
-To launch the development server:
+### Running with Docker Compose (Recommended)
+To launch the full-stack database, Express backend, and Nginx frontend in containerized environments:
 ```bash
+docker-compose up --build
+```
+* **Frontend Web App**: Access [http://localhost:3000](http://localhost:3000)
+* **Backend REST API**: Runs on [http://localhost:5000](http://localhost:5000)
+* **PostgreSQL Database**: Accessible on port `5432`
+
+---
+
+## ⚙️ Development Commands (Local Execution)
+
+If running outside Docker for rapid code edits:
+
+### 1. Run the Database
+You can spin up only the Postgres service in Docker:
+```bash
+docker-compose up db -d
+```
+
+### 2. Start the Backend API
+Navigate to the backend, install dependencies, and run with nodemon:
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+### 3. Start the React Frontend
+In the root directory, install packages and start the dev server:
+```bash
+yarn install
 yarn start
-# or
-npm start
 ```
-Open [http://localhost:3000](http://localhost:3000) in your browser to view the application.
+Go to `http://localhost:3000`. The frontend will proxy/call API requests to local port 5000.
 
-### Building for Production
-To bundle the application in production mode:
+### 4. Running Unit Tests
+To execute the frontend React testing suite:
 ```bash
-yarn build
-# or
-npm run build
+yarn test
 ```
-The output will be placed in the `build/` directory, optimized and ready for deployment.

@@ -23,6 +23,17 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
   const [storeSearch, setStoreSearch] = useState('');
   const [storeCategoryFilter, setStoreCategoryFilter] = useState('All');
 
+  // Editing existing store item
+  const [editingStoreItemId, setEditingStoreItemId] = useState(null);
+  const [editStoreItemName, setEditStoreItemName] = useState('');
+  const [editStoreItemCategory, setEditStoreItemCategory] = useState('Weapon');
+  const [editStoreItemRarity, setEditStoreItemRarity] = useState('Common');
+  const [editStoreItemCost, setEditStoreItemCost] = useState(0);
+  const [editStoreItemCurrency, setEditStoreItemCurrency] = useState('gp');
+  const [editStoreItemWeight, setEditStoreItemWeight] = useState(0);
+  const [editStoreItemStock, setEditStoreItemStock] = useState(null);
+  const [editStoreItemDesc, setEditStoreItemDesc] = useState('');
+
   // Shops Manager states
   const [newShopName, setNewShopName] = useState('');
   const [newShopDesc, setNewShopDesc] = useState('');
@@ -191,6 +202,52 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       await reloadState();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const startEditingStoreItem = (item) => {
+    setEditingStoreItemId(item.id);
+    setEditStoreItemName(item.name);
+    setEditStoreItemCategory(item.category || 'Weapon');
+    setEditStoreItemRarity(item.rarity || 'Common');
+    setEditStoreItemCost(item.cost || 0);
+    setEditStoreItemCurrency(item.currency || 'gp');
+    setEditStoreItemWeight(item.weight || 0);
+    setEditStoreItemStock(item.stock);
+    setEditStoreItemDesc(item.description || '');
+  };
+
+  const handleSaveStoreItemEdits = async (e) => {
+    if (e) e.preventDefault();
+    if (!editStoreItemName.trim()) {
+      alert("Item name is required.");
+      return;
+    }
+
+    const updatedStore = game.store.map(i => {
+      if (i.id === editingStoreItemId) {
+        return {
+          ...i,
+          name: editStoreItemName.trim(),
+          category: editStoreItemCategory,
+          rarity: editStoreItemRarity,
+          cost: Number(editStoreItemCost) || 0,
+          currency: editStoreItemCurrency,
+          weight: Number(editStoreItemWeight) || 0,
+          stock: editStoreItemStock === '' || editStoreItemStock === null ? null : Number(editStoreItemStock),
+          description: editStoreItemDesc.trim()
+        };
+      }
+      return i;
+    });
+
+    try {
+      await db.updateGameStore(gameId, updatedStore);
+      await db.addLog(gameId, "Dungeon Master", `Edited item "${editStoreItemName.trim()}" inside shop catalog.`);
+      setEditingStoreItemId(null);
+      await reloadState();
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -1095,57 +1152,183 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
               </div>
             ) : (
               <div className="tc-wrap-2 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto pr-2">
-                {getFilteredStoreItems().map(item => (
-                  <div
-                    key={item.id}
-                    className={`glass-panel p-4 flex flex-col justify-between rarity-card rarity-${item.rarity.replace(' ', '_')}`}
-                  >
-                    <div>
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-fantasy text-lg text-slate-200">{item.name}</h3>
-                          <span className="text-sm text-slate-400 uppercase font-semibold">
-                            {item.category} • {item.rarity.replace('_', ' ')}
-                            {item.requiresAttunement && <span className="attunement-badge ml-1.5">Attunement</span>}
-                          </span>
-                        </div>
-                        <span className={`coin coin-${item.currency} text-sm`}>{item.cost}</span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-2 line-clamp-2 italic">{item.description || "No description."}</p>
-                    </div>
-
-                    <div className="flex justify-between items-center mt-4 border-t border-white/5 pt-2">
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-slate-500">Stock:</span>
-                        {item.stock === null ? (
-                          <span className="text-xs text-emerald-400 font-semibold">Unlimited</span>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleUpdateStock(item.id, -1)}
-                              className="w-5 height-5 flex items-center justify-center bg-white/5 border border-white/10 text-slate-300 text-xs rounded hover:bg-white/10"
-                            >
-                              -
-                            </button>
-                            <span className="text-xs font-semibold text-white w-6 text-center">{item.stock}</span>
-                            <button
-                              onClick={() => handleUpdateStock(item.id, 1)}
-                              className="w-5 height-5 flex items-center justify-center bg-white/5 border border-white/10 text-slate-300 text-xs rounded hover:bg-white/10"
-                            >
-                              +
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => handleRemoveStoreItem(item.id, item.name)}
-                        className="btn btn-danger text-xs text-white-400 hover:text-rose-300 hover:underline bg-transparent border-none cursor-pointer"
+                {getFilteredStoreItems().map(item => {
+                  if (editingStoreItemId === item.id) {
+                    return (
+                      <form
+                        key={item.id}
+                        onSubmit={handleSaveStoreItemEdits}
+                        className="glass-panel p-4 space-y-3 rarity-card rarity-Common border-amber-500/50 bg-amber-500/5 flex flex-col justify-between"
                       >
-                        Remove
-                      </button>
+                        <div className="space-y-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-400">Name</label>
+                            <input
+                              type="text"
+                              className="rpg-input text-xs p-1.5"
+                              value={editStoreItemName}
+                              onChange={(e) => setEditStoreItemName(e.target.value)}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] uppercase font-bold text-slate-400">Category</label>
+                              <select
+                                className="rpg-input rpg-select text-xs p-1"
+                                value={editStoreItemCategory}
+                                onChange={(e) => setEditStoreItemCategory(e.target.value)}
+                              >
+                                {['Weapon', 'Armor', 'Shield', 'Consumable', 'Wondrous Item'].map(c => (
+                                  <option key={c} value={c}>{c}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] uppercase font-bold text-slate-400">Rarity</label>
+                              <select
+                                className="rpg-input rpg-select text-xs p-1"
+                                value={editStoreItemRarity}
+                                onChange={(e) => setEditStoreItemRarity(e.target.value)}
+                              >
+                                {['Common', 'Uncommon', 'Rare', 'Very Rare', 'Legendary'].map(r => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] uppercase font-bold text-slate-400">Cost</label>
+                              <div className="flex gap-1">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="rpg-input text-xs p-1 flex-1"
+                                  value={editStoreItemCost}
+                                  onChange={(e) => setEditStoreItemCost(Number(e.target.value) || 0)}
+                                />
+                                <select
+                                  className="rpg-input rpg-select text-xs p-1 w-12"
+                                  value={editStoreItemCurrency}
+                                  onChange={(e) => setEditStoreItemCurrency(e.target.value)}
+                                >
+                                  <option value="gp">gp</option>
+                                  <option value="sp">sp</option>
+                                  <option value="cp">cp</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] uppercase font-bold text-slate-400">Weight (lb)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                className="rpg-input text-xs p-1"
+                                value={editStoreItemWeight}
+                                onChange={(e) => setEditStoreItemWeight(Number(e.target.value) || 0)}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-400">Stock (Blank for Unlimited)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              className="rpg-input text-xs p-1.5"
+                              placeholder="Unlimited"
+                              value={editStoreItemStock === null ? '' : editStoreItemStock}
+                              onChange={(e) => setEditStoreItemStock(e.target.value === '' ? null : Number(e.target.value))}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-400">Description</label>
+                            <textarea
+                              className="rpg-input text-xs p-1.5 h-12 resize-none"
+                              value={editStoreItemDesc}
+                              onChange={(e) => setEditStoreItemDesc(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 justify-end border-t border-white/5 pt-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingStoreItemId(null)}
+                            className="rpg-btn rpg-btn-secondary text-[11px] py-1 px-3"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="rpg-btn rpg-btn-primary text-[11px] py-1 px-3"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`glass-panel p-4 flex flex-col justify-between rarity-card rarity-${item.rarity.replace(' ', '_')}`}
+                    >
+                      <div>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="font-fantasy text-lg text-slate-200">{item.name}</h3>
+                            <span className="text-sm text-slate-400 uppercase font-semibold">
+                              {item.category} • {item.rarity.replace('_', ' ')}
+                              {item.requiresAttunement && <span className="attunement-badge ml-1.5">Attunement</span>}
+                            </span>
+                          </div>
+                          <span className={`coin coin-${item.currency} text-sm`}>{item.cost}</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 line-clamp-2 italic">{item.description || "No description."}</p>
+                      </div>
+
+                      <div className="flex justify-between items-center mt-4 border-t border-white/5 pt-2">
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-slate-500">Stock:</span>
+                          {item.stock === null ? (
+                            <span className="text-xs text-emerald-400 font-semibold">Unlimited</span>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleUpdateStock(item.id, -1)}
+                                className="w-5 height-5 flex items-center justify-center bg-white/5 border border-white/10 text-slate-300 text-xs rounded hover:bg-white/10"
+                              >
+                                -
+                              </button>
+                              <span className="text-xs font-semibold text-white w-6 text-center">{item.stock}</span>
+                              <button
+                                onClick={() => handleUpdateStock(item.id, 1)}
+                                className="w-5 height-5 flex items-center justify-center bg-white/5 border border-white/10 text-slate-300 text-xs rounded hover:bg-white/10"
+                              >
+                                +
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => startEditingStoreItem(item)}
+                            className="btn btn-secondary text-xs text-amber-400 hover:text-amber-300 hover:underline bg-transparent border-none cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleRemoveStoreItem(item.id, item.name)}
+                            className="btn btn-danger text-xs text-white-400 hover:text-rose-300 hover:underline bg-transparent border-none cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -1,70 +1,100 @@
-# Getting Started with Create React App
+# 🏰 D&D 5e Campaign Emporium
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A premium, interactive web application designed for Dungeon Masters (DMs) and players to manage campaigns, characters, economies, and travel in a D&D 5e setting. The application features a stunning glassmorphism interface, custom game rules integration, and a mock database architecture running entirely in the browser.
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## 🌟 Key Features
 
-### `yarn start`
+### 1. Campaign & User Management
+* **Role-Based Views**: Log in as a player or DM. Toggle between dashboards to manage different campaigns.
+* **Campaign Invitation**: DMs can generate unique campaign codes (e.g., `G-1234`) for players to easily join the adventure.
+* **Interactive Dashboard**: Track all active campaigns, player characters, and DM statuses from a central hub.
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+### 2. Character Sheet & Mechanics
+* **Dynamic Character Creation**: Create characters by choosing name, race, class, level, stats (STR, DEX, CON, INT, WIS, CHA), starting HP, and initial gold.
+* **Smart Attunement Limits**: Automatic calculation of attunement slots (default is 3, but dynamically scales for specific classes like Artificers up to 6 slots at level 18+).
+* **Inventory & Equipment Slots**:
+  * Dedicated slots for Armor, Main Hand, Off-Hand, and up to 5 Wondrous/Accessory slots.
+  * **Rule Constraints**: Wielding a two-handed weapon automatically unequips off-hand shields or weapons and blocks off-hand equipping.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### 3. Economy & Shop System (The Emporium)
+* **Custom Storefront**: DMs can list standard SRD items or create completely custom items for the campaign shop.
+* **Stock & Currency Management**: Set prices in Gold (gp), Silver (sp), or Copper (cp) with custom stock limits.
+* **Live Purchasing**: Players buy items using their inventory gold. Gold conversion (1 gp = 10 sp = 100 cp) and exact coin subtractions are computed automatically.
 
-### `yarn test`
+### 4. Interactive World Map & Travel
+* **Interactive Nodes**: Explore locations like *Phandalin*, *Neverwinter Wood*, *Cragmaw Castle*, and *Wave Echo Cave*.
+* **Real-time Travel**: Track party location and manage travel state between locations.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### 5. Live Campaign Logs
+* **Real-Time Logs**: View an activity stream showing system events, character creations, purchases, and DM actions.
+* **State Syncing**: Action logs use custom events to immediately notify and update active UI views.
 
-### `yarn build`
+---
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## 🛠️ Technology Stack
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+* **Frontend Framework**: React 18
+* **Styling**: Vanilla CSS with custom theme variables, premium glassmorphism layouts, and custom typography integrations.
+* **Database & Persistence**: Lightweight mock database wrapper utilizing browser `localStorage` (`src/utils/db.js`).
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+---
 
-### `yarn eject`
+## 📁 Project Structure
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+emporium/
+├── public/
+│   └── index.html          # HTML entry point
+└── src/
+    ├── components/
+    │   ├── Auth.js         # Register & Login component
+    │   ├── Dashboard.js    # Hub to join/create campaigns
+    │   ├── DMPanel.js      # Campaign control panel for Dungeon Masters
+    │   └── PlayerPanel.js  # Character sheets, inventory & shop for Players
+    ├── utils/
+    │   ├── db.js           # LocalStorage database helper & game rules
+    │   └── srdItems.js     # Default D&D 5e SRD items for campaign shops
+    ├── App.js              # Application router & main state controller
+    ├── index.js            # React entry point
+    └── index.css           # Global typography, color tokens, and styling
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+---
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## 🚀 Getting Started
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+### Prerequisites
+Make sure you have [Node.js](https://nodejs.org/) installed on your machine.
 
-## Learn More
+### Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Fealps/emporium.git
+   cd emporium
+   ```
+2. Install dependencies:
+   ```bash
+   yarn install
+   # or
+   npm install
+   ```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### Running Locally
+To launch the development server:
+```bash
+yarn start
+# or
+npm start
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser to view the application.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `yarn build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+### Building for Production
+To bundle the application in production mode:
+```bash
+yarn build
+# or
+npm run build
+```
+The output will be placed in the `build/` directory, optimized and ready for deployment.

@@ -22,6 +22,7 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
   const [csvError, setCsvError] = useState('');
   const [storeSearch, setStoreSearch] = useState('');
   const [storeCategoryFilter, setStoreCategoryFilter] = useState('All');
+  const [viewedMapId, setViewedMapId] = useState('map_default');
 
   // Editing existing store item
   const [editingStoreItemId, setEditingStoreItemId] = useState(null);
@@ -69,6 +70,12 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
     try {
       const g = await db.getGame(gameId);
       setGame(g);
+      if (g) {
+        const activeId = g.activeMapId || 'map_default';
+        if (viewedMapId === 'map_default' && activeId !== 'map_default') {
+          setViewedMapId(activeId);
+        }
+      }
       const chars = await db.getAllCharactersInGame(gameId);
       setPlayers(chars);
       const logsList = await db.getLogs(gameId);
@@ -750,12 +757,35 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       return;
     }
 
+    const mapName = window.prompt("Enter a name for this custom map layout (e.g. Underdark):", "Custom Map");
+    if (!mapName || !mapName.trim()) return;
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       const dataUrl = event.target.result;
+      const currentMaps = (game.maps && game.maps.length > 0) ? [...game.maps] : [
+        {
+          id: 'map_default',
+          name: 'Phandalin Cartography',
+          url: game.mapUrl || null,
+          locations: game.locations || []
+        }
+      ];
+
+      const newMapId = "map_" + Math.floor(1000 + Math.random() * 9000);
+      const newMap = {
+        id: newMapId,
+        name: mapName.trim(),
+        url: dataUrl,
+        locations: []
+      };
+
+      currentMaps.push(newMap);
+
       try {
-        await db.updateGameMapUrl(gameId, dataUrl);
-        await db.addLog(gameId, "Dungeon Master", "Uploaded a new custom campaign PNG map layout.");
+        await db.updateGameMaps(gameId, currentMaps);
+        setViewedMapId(newMapId);
+        await db.addLog(gameId, "Dungeon Master", `Uploaded new map layout "${mapName.trim()}" to the campaign archives.`);
         await reloadState();
       } catch (err) {
         console.error(err);
@@ -766,8 +796,28 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
 
   const handleResetMap = async () => {
     if (window.confirm("Reset campaign map back to default Phandalin cartography?")) {
+      const defaultLocations = [
+        {
+          id: 'loc_start',
+          name: 'Town of Phandalin',
+          description: 'A small frontier town nestled in the foothills of the Sword Mountains. Home of the Stonehill Inn.',
+          x: 215,
+          y: 285
+        }
+      ];
+      const defaultMaps = [
+        {
+          id: 'map_default',
+          name: 'Phandalin Cartography',
+          url: null,
+          locations: defaultLocations
+        }
+      ];
+
       try {
-        await db.updateGameMapUrl(gameId, null);
+        await db.updateGameMaps(gameId, defaultMaps);
+        await db.updateGameActiveMap(gameId, 'map_default', null, defaultLocations);
+        setViewedMapId('map_default');
         await db.addLog(gameId, "Dungeon Master", "Reset campaign map layout back to default.");
         await reloadState();
       } catch (e) {
@@ -780,7 +830,18 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
     e.preventDefault();
     if (newLocX === null || newLocY === null || !newLocName.trim()) return;
 
-    const currentLocs = [...(game.locations || [])];
+    const currentMaps = (game.maps && game.maps.length > 0) ? game.maps : [
+      {
+        id: 'map_default',
+        name: 'Phandalin Cartography',
+        url: game.mapUrl,
+        locations: game.locations || []
+      }
+    ];
+
+    const targetMap = currentMaps.find(m => m.id === viewedMapId);
+    if (!targetMap) return;
+
     const newLoc = {
       id: "loc_" + Math.floor(1000 + Math.random() * 9000),
       name: newLocName.trim(),
@@ -789,10 +850,20 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       y: newLocY
     };
 
-    currentLocs.push(newLoc);
+    const updatedLocs = [...(targetMap.locations || []), newLoc];
+    const updatedMaps = currentMaps.map(m => {
+      if (m.id === viewedMapId) {
+        return { ...m, locations: updatedLocs };
+      }
+      return m;
+    });
+
     try {
-      await db.updateGameLocations(gameId, currentLocs);
-      await db.addLog(gameId, "Dungeon Master", `Placed new landmark "${newLoc.name}" at coordinates (X: ${newLocX}, Y: ${newLocY}).`);
+      await db.updateGameMaps(gameId, updatedMaps);
+      if (viewedMapId === game.activeMapId) {
+        await db.updateGameLocations(gameId, updatedLocs);
+      }
+      await db.addLog(gameId, "Dungeon Master", `Placed new landmark "${newLoc.name}" at coordinates (X: ${newLocX}, Y: ${newLocY}) on "${targetMap.name}".`);
       setNewLocName('');
       setNewLocDesc('');
       setNewLocX(null);
@@ -804,30 +875,52 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
   };
 
   const handleDeleteLocation = async (locId, locName) => {
-    if (locId === "loc_start") {
-      alert("Cannot delete Phandalin (the starting location).");
-      return;
-    }
     if (!window.confirm(`Are you sure you want to delete the landmark "${locName}"?`)) return;
 
-    const updatedLocs = (game.locations || []).filter(l => l.id !== locId);
+    const currentMaps = (game.maps && game.maps.length > 0) ? game.maps : [
+      {
+        id: 'map_default',
+        name: 'Phandalin Cartography',
+        url: game.mapUrl,
+        locations: game.locations || []
+      }
+    ];
+
+    const targetMap = currentMaps.find(m => m.id === viewedMapId);
+    if (!targetMap) return;
+
+    const updatedLocs = (targetMap.locations || []).filter(l => l.id !== locId);
+
     let nextPartyLoc = game.partyLocation;
     let nextTravelState = game.travelState;
 
     if (game.partyLocation === locId) {
-      nextPartyLoc = "loc_start";
+      nextPartyLoc = updatedLocs.length > 0 ? updatedLocs[0].id : null;
     }
     if (game.travelState && (game.travelState.to === locId || game.travelState.from === locId)) {
       nextTravelState = null;
     }
 
+    const updatedMaps = currentMaps.map(m => {
+      if (m.id === viewedMapId) {
+        return { ...m, locations: updatedLocs };
+      }
+      return m;
+    });
+
     try {
-      await db.updateGameLocations(gameId, updatedLocs);
+      await db.updateGameMaps(gameId, updatedMaps);
       await db.updateGameTravel(gameId, {
         partyLocation: nextPartyLoc,
         travelState: nextTravelState
       });
+
+      if (viewedMapId === game.activeMapId) {
+        await db.updateGameLocations(gameId, updatedLocs);
+      }
+
       await db.addLog(gameId, "Dungeon Master", `Removed landmark "${locName}" from the map.`);
+      setSelectedDMLocId(null);
       await reloadState();
     } catch (e) {
       console.error(e);
@@ -838,7 +931,19 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
     e.preventDefault();
     if (!selectedDMLocId || !editLocName.trim()) return;
 
-    const updatedLocs = (game.locations || []).map(loc => {
+    const currentMaps = (game.maps && game.maps.length > 0) ? game.maps : [
+      {
+        id: 'map_default',
+        name: 'Phandalin Cartography',
+        url: game.mapUrl,
+        locations: game.locations || []
+      }
+    ];
+
+    const targetMap = currentMaps.find(m => m.id === viewedMapId);
+    if (!targetMap) return;
+
+    const updatedLocs = (targetMap.locations || []).map(loc => {
       if (loc.id === selectedDMLocId) {
         return {
           ...loc,
@@ -849,8 +954,18 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
       return loc;
     });
 
+    const updatedMaps = currentMaps.map(m => {
+      if (m.id === viewedMapId) {
+        return { ...m, locations: updatedLocs };
+      }
+      return m;
+    });
+
     try {
-      await db.updateGameLocations(gameId, updatedLocs);
+      await db.updateGameMaps(gameId, updatedMaps);
+      if (viewedMapId === game.activeMapId) {
+        await db.updateGameLocations(gameId, updatedLocs);
+      }
       await db.addLog(gameId, "Dungeon Master", `Updated details for landmark "${editLocName.trim()}".`);
       setIsEditingLandmark(false);
       await reloadState();
@@ -876,6 +991,59 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
         travelState
       });
       await db.addLog(gameId, "Dungeon Master", `The party began traveling from ${fromLoc.name} to ${locName} (Estimated time: ${travelDuration}s).`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteMap = async (mapId, mapName) => {
+    if (mapId === 'map_default') {
+      alert("Cannot delete Phandalin Cartography (the default campaign map).");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete the map "${mapName}" and all its landmarks?`)) return;
+
+    const currentMaps = game.maps.filter(m => m.id !== mapId);
+    let nextActiveMapId = game.activeMapId;
+    let nextMapUrl = game.mapUrl;
+    let nextLocations = game.locations;
+
+    if (game.activeMapId === mapId) {
+      nextActiveMapId = 'map_default';
+      const defaultMap = currentMaps.find(m => m.id === 'map_default') || { url: null, locations: [] };
+      nextMapUrl = defaultMap.url;
+      nextLocations = defaultMap.locations;
+    }
+
+    try {
+      await db.updateGameMaps(gameId, currentMaps);
+      if (game.activeMapId === mapId) {
+        await db.updateGameActiveMap(gameId, nextActiveMapId, nextMapUrl, nextLocations);
+      }
+      setViewedMapId(nextActiveMapId);
+      await db.addLog(gameId, "Dungeon Master", `Deleted map layout "${mapName}".`);
+      await reloadState();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handlePublishActiveMap = async (mapId) => {
+    const currentMaps = (game.maps && game.maps.length > 0) ? game.maps : [
+      {
+        id: 'map_default',
+        name: 'Phandalin Cartography',
+        url: game.mapUrl,
+        locations: game.locations || []
+      }
+    ];
+    const targetMap = currentMaps.find(m => m.id === mapId);
+    if (!targetMap) return;
+
+    try {
+      await db.updateGameActiveMap(gameId, mapId, targetMap.url, targetMap.locations);
+      await db.addLog(gameId, "Dungeon Master", `Published map "${targetMap.name}" to all players.`);
       await reloadState();
     } catch (e) {
       console.error(e);
@@ -1529,359 +1697,405 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
 
       {/* 2. MAP & TRAVEL */}
       {activeTab === 'map' && (() => {
-        const selectedLoc = game.locations.find(l => l.id === selectedDMLocId);
+        const currentMaps = game.maps || [];
+        const currentViewedMap = currentMaps.find(m => m.id === viewedMapId) || { id: 'map_default', name: 'Phandalin Cartography', url: game.mapUrl, locations: game.locations || [] };
+        const viewedLocations = currentViewedMap.locations || [];
+        const selectedLoc = viewedLocations.find(l => l.id === selectedDMLocId);
+
         return (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Map canvas */}
-            <div className="lg:col-span-2 glass-panel p-4 flex flex-col space-y-3">
-              <div>
-                <h2 className="text-lg text-gold font-fantasy">Campaign World Map</h2>
-                <p className="text-xs text-slate-400">
-                  Click on any landmark to edit details, delete it, or set it as travel destination. Click on empty space to establish a new landmark.
-                </p>
-              </div>
+          <div className="space-y-4">
+            {/* Map Selection header */}
+            <div className="glass-panel p-3 flex flex-wrap items-center justify-between gap-3 border border-amber-500/10">
+              <div className="flex items-center gap-3">
+                <span className="text-xs uppercase font-bold text-slate-400 font-fantasy">Campaign Maps:</span>
+                <select
+                  className="rpg-input rpg-select text-xs w-48"
+                  value={viewedMapId}
+                  onChange={(e) => {
+                    setViewedMapId(e.target.value);
+                    setSelectedDMLocId(null);
+                    setNewLocX(null);
+                    setNewLocY(null);
+                  }}
+                >
+                  {(game.maps && game.maps.length > 0 ? game.maps : [{ id: 'map_default', name: 'Phandalin Cartography' }]).map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
 
-              <div
-                className="map-container relative cursor-crosshair"
-                style={{ backgroundImage: `url(${game.mapUrl || fantasyMap})` }}
-                onClick={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const x = Math.round(e.clientX - rect.left);
-                  const y = Math.round(e.clientY - rect.top);
-                  
-                  setSelectedDMLocId(null);
-                  setIsEditingLandmark(false);
-                  
-                  setNewLocX(x);
-                  setNewLocY(y);
-                  setNewLocName('');
-                  setNewLocDesc('');
-                }}
-              >
-                {/* Place nodes */}
-                {game.locations.map(loc => {
-                  const isActive = game.partyLocation === loc.id;
-                  const isSelected = selectedDMLocId === loc.id;
-                  return (
-                    <div
-                      key={loc.id}
-                      className={`map-node ${isActive ? 'active' : ''} ${isSelected ? 'border-amber-400 scale-110 shadow-lg' : ''} cursor-pointer`}
-                      style={{ left: `${loc.x}px`, top: `${loc.y}px` }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedDMLocId(loc.id);
-                        setNewLocX(null);
-                        setNewLocY(null);
-                        setEditLocName(loc.name);
-                        setEditLocDesc(loc.description || '');
-                        setIsEditingLandmark(false);
-                      }}
-                      title={`${loc.name}: ${loc.description}`}
-                    >
-                      <div className="map-node-inner"></div>
-                      <div className="map-node-label">{loc.name}</div>
-                    </div>
-                  );
-                })}
-
-                {/* Glowing party traveler icon */}
-                {game.travelState && (
-                  <div
-                    className="map-party-indicator animate-bounce"
-                    style={{
-                      left: `${(() => {
-                        const fromLoc = game.locations.find(l => l.id === game.travelState.from);
-                        const toLoc = game.locations.find(l => l.id === game.travelState.to);
-                        const progress = getTravelProgress() / 100;
-                        return fromLoc.x + (toLoc.x - fromLoc.x) * progress;
-                      })()
-                        }px`,
-                      top: `${(() => {
-                        const fromLoc = game.locations.find(l => l.id === game.travelState.from);
-                        const toLoc = game.locations.find(l => l.id === game.travelState.to);
-                        const progress = getTravelProgress() / 100;
-                        return fromLoc.y + (toLoc.y - fromLoc.y) * progress;
-                      })()
-                        }px`
-                    }}
+                {viewedMapId !== game.activeMapId ? (
+                  <button
+                    onClick={() => handlePublishActiveMap(viewedMapId)}
+                    className="rpg-btn rpg-btn-primary py-1 px-3 text-xs"
                   >
-                    ⛺
-                  </div>
-                )}
-
-                {/* Temporary pin when clicking empty space */}
-                {newLocX !== null && newLocY !== null && (
-                  <div
-                    className="absolute w-3 h-3 bg-amber-400 border border-black rounded-full animate-ping pointer-events-none"
-                    style={{ left: `${newLocX - 6}px`, top: `${newLocY - 6}px` }}
-                  />
+                    📣 Show to Players
+                  </button>
+                ) : (
+                  <span className="text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-semibold px-2 py-0.5 rounded font-mono">
+                    ACTIVE (Visible to Players)
+                  </span>
                 )}
               </div>
+
+              {viewedMapId !== 'map_default' && (
+                <button
+                  onClick={() => handleDeleteMap(viewedMapId, currentViewedMap.name)}
+                  className="rpg-btn rpg-btn-secondary py-1 px-2.5 text-xs border-rose-950 text-rose-400 hover:bg-rose-950/20"
+                >
+                  Delete Map
+                </button>
+              )}
             </div>
 
-            {/* Map Details & Travel coordinator sidebar */}
-            <div className="glass-panel p-5 space-y-5 h-fit">
-              {/* Landmark Selection / Edit / Travel Panel */}
-              {selectedLoc ? (
-                <div className="border border-white/5 bg-amber-950/10 p-4 rounded-lg space-y-3">
-                  <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
-                    <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-widest font-fantasy">Inspecting Landmark</h3>
-                    <button
-                      onClick={() => setSelectedDMLocId(null)}
-                      className="text-xs text-slate-400 hover:text-slate-200 bg-transparent border-none cursor-pointer"
-                    >
-                      Deselect
-                    </button>
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Map canvas */}
+              <div className="lg:col-span-2 glass-panel p-4 flex flex-col space-y-3">
+                <div>
+                  <h2 className="text-lg text-gold font-fantasy">Campaign World Map</h2>
+                  <p className="text-xs text-slate-400">
+                    Click on any landmark to edit details, delete it, or set it as travel destination. Click on empty space to establish a new landmark.
+                  </p>
+                </div>
 
-                  {isEditingLandmark ? (
-                    <form onSubmit={handleSaveLandmarkEdits} className="space-y-3">
+                <div
+                  className="map-container relative cursor-crosshair"
+                  style={{ backgroundImage: `url(${currentViewedMap.url || fantasyMap})` }}
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const x = Math.round(e.clientX - rect.left);
+                    const y = Math.round(e.clientY - rect.top);
+                    
+                    setSelectedDMLocId(null);
+                    setIsEditingLandmark(false);
+                    
+                    setNewLocX(x);
+                    setNewLocY(y);
+                    setNewLocName('');
+                    setNewLocDesc('');
+                  }}
+                >
+                  {/* Place nodes */}
+                  {viewedLocations.map(loc => {
+                    const isActive = game.partyLocation === loc.id && viewedMapId === game.activeMapId;
+                    const isSelected = selectedDMLocId === loc.id;
+                    return (
+                      <div
+                        key={loc.id}
+                        className={`map-node ${isActive ? 'active' : ''} ${isSelected ? 'border-amber-400 scale-110 shadow-lg' : ''} cursor-pointer`}
+                        style={{ left: `${loc.x}px`, top: `${loc.y}px` }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDMLocId(loc.id);
+                          setNewLocX(null);
+                          setNewLocY(null);
+                          setEditLocName(loc.name);
+                          setEditLocDesc(loc.description || '');
+                          setIsEditingLandmark(false);
+                        }}
+                        title={`${loc.name}: ${loc.description}`}
+                      >
+                        <div className="map-node-inner"></div>
+                        <div className="map-node-label">{loc.name}</div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Glowing party traveler icon */}
+                  {game.travelState && viewedMapId === game.activeMapId && (
+                    <div
+                      className="map-party-indicator animate-bounce"
+                      style={{
+                        left: `${(() => {
+                          const fromLoc = game.locations.find(l => l.id === game.travelState.from);
+                          const toLoc = game.locations.find(l => l.id === game.travelState.to);
+                          const progress = getTravelProgress() / 100;
+                          return fromLoc ? fromLoc.x + (toLoc.x - fromLoc.x) * progress : 0;
+                        })()
+                          }px`,
+                        top: `${(() => {
+                          const fromLoc = game.locations.find(l => l.id === game.travelState.from);
+                          const toLoc = game.locations.find(l => l.id === game.travelState.to);
+                          const progress = getTravelProgress() / 100;
+                          return fromLoc ? fromLoc.y + (toLoc.y - fromLoc.y) * progress : 0;
+                        })()
+                          }px`
+                      }}
+                    >
+                      ⛺
+                    </div>
+                  )}
+
+                  {/* Temporary pin when clicking empty space */}
+                  {newLocX !== null && newLocY !== null && (
+                    <div
+                      className="absolute w-3 h-3 bg-amber-400 border border-black rounded-full animate-ping pointer-events-none"
+                      style={{ left: `${newLocX - 6}px`, top: `${newLocY - 6}px` }}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Map Details & Travel coordinator sidebar */}
+              <div className="glass-panel p-5 space-y-5 h-fit">
+                {/* Landmark Selection / Edit / Travel Panel */}
+                {selectedLoc ? (
+                  <div className="border border-white/5 bg-amber-950/10 p-4 rounded-lg space-y-3">
+                    <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                      <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-widest font-fantasy">Inspecting Landmark</h3>
+                      <button
+                        onClick={() => setSelectedDMLocId(null)}
+                        className="text-xs text-slate-400 hover:text-slate-200 bg-transparent border-none cursor-pointer"
+                      >
+                        Deselect
+                      </button>
+                    </div>
+
+                    {isEditingLandmark ? (
+                      <form onSubmit={handleSaveLandmarkEdits} className="space-y-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-slate-400">Landmark Name</label>
+                          <input
+                            type="text"
+                            className="rpg-input text-xs"
+                            value={editLocName}
+                            onChange={(e) => setEditLocName(e.target.value)}
+                            required
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                          <label className="text-xs text-slate-400">Lore / Description</label>
+                          <textarea
+                            className="rpg-input text-xs h-16 resize-none"
+                            value={editLocDesc}
+                            onChange={(e) => setEditLocDesc(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button type="submit" className="rpg-btn rpg-btn-primary text-xs py-1 px-3 flex-1">
+                            Save Changes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingLandmark(false)}
+                            className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 flex-1"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div className="space-y-2.5">
+                        <h4 className="text-md font-fantasy text-white">{selectedLoc.name}</h4>
+                        <p className="text-xs text-slate-300 leading-relaxed italic">
+                          "{selectedLoc.description || 'No description recorded.'}"
+                        </p>
+                        <p className="text-[10px] text-slate-500 font-mono">Coordinates: ({selectedLoc.x}, {selectedLoc.y})</p>
+                        
+                        <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+                          {game.partyLocation !== selectedLoc.id && viewedMapId === game.activeMapId && (
+                            <button
+                              onClick={() => handleStartTravelToLoc(selectedLoc.id, selectedLoc.name)}
+                              disabled={!!game.travelState}
+                              className="rpg-btn rpg-btn-primary w-full py-1.5 text-xs"
+                            >
+                              🏹 Set as Travel Destination
+                            </button>
+                          )}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setEditLocName(selectedLoc.name);
+                                setEditLocDesc(selectedLoc.description || '');
+                                setIsEditingLandmark(true);
+                              }}
+                              className="rpg-btn rpg-btn-secondary text-xs py-1 flex-1 border-amber-500/20 text-amber-300"
+                            >
+                              ⚙ Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLocation(selectedLoc.id, selectedLoc.name)}
+                              className="rpg-btn rpg-btn-secondary text-xs py-1 flex-1 border-rose-950 text-rose-400 hover:bg-rose-950/20"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : newLocX !== null && newLocY !== null ? (
+                  <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
+                    <div className="flex justify-between items-center border-b border-white/5 pb-1">
+                      <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Establish Landmark</h3>
+                      <button
+                        onClick={() => { setNewLocX(null); setNewLocY(null); }}
+                        className="text-xs text-slate-400 hover:text-slate-200 bg-transparent border-none cursor-pointer font-bold ml-2"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      You clicked on coordinates **X: {newLocX}, Y: {newLocY}** on **"{currentViewedMap.name}"**. Establish a new landmark or town at this location?
+                    </p>
+
+                    <form onSubmit={handleCreateLandmark} className="space-y-3 pt-2">
                       <div className="flex flex-col gap-1">
                         <label className="text-xs text-slate-400">Landmark Name</label>
                         <input
                           type="text"
                           className="rpg-input text-xs"
-                          value={editLocName}
-                          onChange={(e) => setEditLocName(e.target.value)}
+                          placeholder="e.g. Shadowdale"
+                          value={newLocName}
+                          onChange={(e) => setNewLocName(e.target.value)}
                           required
                         />
                       </div>
 
                       <div className="flex flex-col gap-1">
-                        <label className="text-xs text-slate-400">Lore / Description</label>
+                        <label className="text-xs text-slate-400">Lore Description</label>
                         <textarea
                           className="rpg-input text-xs h-16 resize-none"
-                          value={editLocDesc}
-                          onChange={(e) => setEditLocDesc(e.target.value)}
+                          placeholder="Describe the city, landmarks, or secrets..."
+                          value={newLocDesc}
+                          onChange={(e) => setNewLocDesc(e.target.value)}
                         />
                       </div>
 
-                      <div className="flex gap-2">
-                        <button type="submit" className="rpg-btn rpg-btn-primary text-xs py-1 px-3 flex-1">
-                          Save Changes
-                        </button>
+                      <button type="submit" className="rpg-btn rpg-btn-primary w-full py-1.5 text-xs">
+                        ＋ Place Landmark
+                      </button>
+                    </form>
+                  </div>
+                ) : (
+                  <div className="border border-white/5 bg-black/20 p-4 rounded-lg text-center text-xs text-slate-400 italic">
+                    💡 Select a landmark on the map to edit details or dispatch travel. Click empty space to add new cities.
+                  </div>
+                )}
+
+                {/* Map image settings */}
+                <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
+                  <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Map Layouts</h3>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] text-slate-400">Upload new PNG map (max 25MB)</label>
+                    <div className="flex flex-col gap-2">
+                      <input
+                        type="file"
+                        accept="image/png"
+                        className="rpg-input text-xs w-full"
+                        onChange={handleMapUpload}
+                      />
+                      {game.maps && game.maps.length > 1 && (
                         <button
                           type="button"
-                          onClick={() => setIsEditingLandmark(false)}
-                          className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 flex-1"
+                          onClick={handleResetMap}
+                          className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 border-rose-950 text-rose-400 hover:bg-rose-950/20"
                         >
-                          Cancel
+                          Reset to Default Map List
                         </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="space-y-2.5">
-                      <h4 className="text-md font-fantasy text-white">{selectedLoc.name}</h4>
-                      <p className="text-xs text-slate-300 leading-relaxed italic">
-                        "{selectedLoc.description || 'No description recorded.'}"
-                      </p>
-                      <p className="text-[10px] text-slate-500 font-mono">Coordinates: ({selectedLoc.x}, {selectedLoc.y})</p>
-                      
-                      <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
-                        {game.partyLocation !== selectedLoc.id && (
-                          <button
-                            onClick={() => handleStartTravelToLoc(selectedLoc.id, selectedLoc.name)}
-                            disabled={!!game.travelState}
-                            className="rpg-btn rpg-btn-primary w-full py-1.5 text-xs"
-                          >
-                            🏹 Set as Travel Destination
-                          </button>
-                        )}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setEditLocName(selectedLoc.name);
-                              setEditLocDesc(selectedLoc.description || '');
-                              setIsEditingLandmark(true);
-                            }}
-                            className="rpg-btn rpg-btn-secondary text-xs py-1 flex-1 border-amber-500/20 text-amber-300"
-                          >
-                            ⚙ Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteLocation(selectedLoc.id, selectedLoc.name)}
-                            disabled={selectedLoc.id === 'loc_start'}
-                            className="rpg-btn rpg-btn-secondary text-xs py-1 flex-1 border-rose-950 text-rose-400 hover:bg-rose-950/20 disabled:opacity-40"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ) : newLocX !== null && newLocY !== null ? (
-                <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
-                  <div className="flex justify-between items-center border-b border-white/5 pb-1">
-                    <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Establish Landmark</h3>
-                    <button
-                      onClick={() => { setNewLocX(null); setNewLocY(null); }}
-                      className="text-xs text-slate-400 hover:text-slate-200 bg-transparent border-none cursor-pointer font-bold ml-2"
-                    >
-                      ×
-                    </button>
                   </div>
-                  <p className="text-[10px] text-slate-400 leading-normal">
-                    You clicked on coordinates **X: {newLocX}, Y: {newLocY}**. Establish a new landmark or town at this location?
-                  </p>
-
-                  <form onSubmit={handleCreateLandmark} className="space-y-3 pt-2">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-slate-400">Landmark Name</label>
-                      <input
-                        type="text"
-                        className="rpg-input text-xs"
-                        placeholder="e.g. Shadowdale"
-                        value={newLocName}
-                        onChange={(e) => setNewLocName(e.target.value)}
-                        required
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-slate-400">Lore Description</label>
-                      <textarea
-                        className="rpg-input text-xs h-16 resize-none"
-                        placeholder="Describe the city, landmarks, or secrets..."
-                        value={newLocDesc}
-                        onChange={(e) => setNewLocDesc(e.target.value)}
-                      />
-                    </div>
-
-                    <button type="submit" className="rpg-btn rpg-btn-primary w-full py-1.5 text-xs">
-                      ＋ Place Landmark
-                    </button>
-                  </form>
                 </div>
-              ) : (
-                <div className="border border-white/5 bg-black/20 p-4 rounded-lg text-center text-xs text-slate-400 italic">
-                  💡 Select a landmark on the map to edit details or dispatch travel. Click empty space to add new cities.
-                </div>
-              )}
 
-              {/* Map image settings */}
-              <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-3">
-                <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-widest">Map Layout</h3>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] text-slate-400">Upload custom map image (.png, max 1.5MB)</label>
-                  <div className="flex flex-col gap-2">
-                    <input
-                      type="file"
-                      accept="image/png"
-                      className="rpg-input text-xs w-full"
-                      onChange={handleMapUpload}
-                    />
-                    {game.mapUrl && (
+                <div>
+                  <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Party Status</h2>
+                  <div className="mt-3 space-y-2">
+                    <p className="text-sm">
+                      <span className="text-slate-400">Current Position:</span>{" "}
+                      <span className="font-fantasy text-amber-300">{activeLocation ? activeLocation.name : 'Unknown Wilderness'}</span>
+                    </p>
+                    <p className="text-xs text-slate-400 italic font-medium">
+                      "{activeLocation ? activeLocation.description : 'A mysterious area untouched by cartographers.'}"
+                    </p>
+                  </div>
+                </div>
+
+                {/* Travel simulation progress widget */}
+                {game.travelState && (
+                  <div className="border border-white/5 bg-rose-950/15 p-4 rounded-lg space-y-3">
+                    <h3 className="text-xs font-semibold text-rose-300 uppercase tracking-widest">Active Travel Journey</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-xs">
+                        <span>Traveling to {targetLocation?.name}</span>
+                        <span className="text-amber-400 font-semibold">{getRemainingTravelTime()}s remaining</span>
+                      </div>
+
+                      <div className="travel-progress-bar">
+                        <div
+                          className="travel-progress-fill"
+                          style={{ width: `${getTravelProgress()}%` }}
+                        ></div>
+                      </div>
+
                       <button
-                        type="button"
-                        onClick={handleResetMap}
-                        className="rpg-btn rpg-btn-secondary text-xs py-1 px-3 border-rose-950 text-rose-400 hover:bg-rose-950/20"
+                        onClick={handleCancelTravel}
+                        className="rpg-btn rpg-btn-secondary w-full py-1 text-xs text-rose-400 border-rose-950/40 hover:bg-rose-950/20"
                       >
-                        Reset to Default Map
+                        Abort Travel Journey
                       </button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </div>
+                )}
 
-              <div>
-                <h2 className="text-lg text-gold font-fantasy border-b border-white/5 pb-2">Party Status</h2>
-                <div className="mt-3 space-y-2">
-                  <p className="text-sm">
-                    <span className="text-slate-400">Current Position:</span>{" "}
-                    <span className="font-fantasy text-amber-300">{activeLocation ? activeLocation.name : 'Unknown Wilderness'}</span>
-                  </p>
-                  <p className="text-xs text-slate-400 italic font-medium">
-                    "{activeLocation ? activeLocation.description : 'A mysterious area untouched by cartographers.'}"
-                  </p>
-                </div>
-              </div>
-
-              {/* Travel simulation progress widget */}
-              {game.travelState && (
-                <div className="border border-white/5 bg-rose-950/15 p-4 rounded-lg space-y-3">
-                  <h3 className="text-xs font-semibold text-rose-300 uppercase tracking-widest">Active Travel Journey</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-400">Traveling to {targetLocation?.name}</span>
-                      <span className="text-amber-400 font-semibold">{getRemainingTravelTime()}s remaining</span>
-                    </div>
-
-                    <div className="travel-progress-bar">
-                      <div
-                        className="travel-progress-fill"
-                        style={{ width: `${getTravelProgress()}%` }}
-                      ></div>
-                    </div>
-
-                    <button
-                      onClick={handleCancelTravel}
-                      className="rpg-btn rpg-btn-secondary w-full py-1 text-xs text-rose-400 border-rose-950/40 hover:bg-rose-950/20"
-                    >
-                      Abort Travel Journey
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Quick Travel form */}
-              {!selectedLoc && !game.travelState && (
-                <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-4">
-                  <h3 className="text-sm text-gold font-fantasy">Dispatch Party Travel</h3>
-                  <div className="space-y-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-slate-400">Destination</label>
-                      <select
-                        className="rpg-input rpg-select text-xs w-full"
-                        value={selectedTravelTarget}
-                        onChange={(e) => setSelectedTravelTarget(e.target.value)}
-                      >
-                        <option value="">-- Select Destination --</option>
-                        {game.locations
-                          .filter(l => l.id !== game.partyLocation)
-                          .map(l => (
-                            <option key={l.id} value={l.id}>{l.name}</option>
-                          ))
-                        }
-                      </select>
-                    </div>
-
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-slate-400">Travel Speed / Time (seconds)</label>
-                      <input
-                        type="number"
-                        min="5"
-                        max="300"
-                        className="rpg-input text-xs w-full"
-                        value={travelDuration}
-                        onChange={(e) => setTravelDuration(Number(e.target.value) || 10)}
-                      />
-                    </div>
-
-                    <button
-                      onClick={handleStartTravel}
-                      disabled={!selectedTravelTarget}
-                      className="rpg-btn rpg-btn-primary w-full py-2 text-xs"
-                    >
-                      🏹 Set Party in Motion
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* List coordinates/nodes info */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest border-b border-white/5 pb-1">Known Locations</h3>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                  {game.locations.map(loc => (
-                    <div key={loc.id} className="text-xs p-2 bg-white/5 rounded border border-white/5 flex justify-between items-center">
-                      <div>
-                        <span className="font-fantasy text-slate-200 block">{loc.name}</span>
-                        <span className="text-[10px] text-slate-400 italic max-w-[180px] block truncate">{loc.description}</span>
+                {/* Quick Travel form */}
+                {!selectedLoc && !game.travelState && (
+                  <div className="border border-white/5 bg-black/20 p-4 rounded-lg space-y-4">
+                    <h3 className="text-sm text-gold font-fantasy">Dispatch Party Travel</h3>
+                    <div className="space-y-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-slate-400">Destination</label>
+                        <select
+                          className="rpg-input rpg-select text-xs w-full"
+                          value={selectedTravelTarget}
+                          onChange={(e) => setSelectedTravelTarget(e.target.value)}
+                        >
+                          <option value="">-- Select Destination --</option>
+                          {game.locations
+                            .filter(l => l.id !== game.partyLocation)
+                            .map(l => (
+                              <option key={l.id} value={l.id}>{l.name}</option>
+                            ))
+                          }
+                        </select>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-slate-500 font-mono">({loc.x}, {loc.y})</span>
-                        {loc.id !== 'loc_start' && (
+
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-slate-400">Travel Speed / Time (seconds)</label>
+                        <input
+                          type="number"
+                          min="5"
+                          max="300"
+                          className="rpg-input text-xs w-full"
+                          value={travelDuration}
+                          onChange={(e) => setTravelDuration(Number(e.target.value) || 10)}
+                        />
+                      </div>
+
+                      <button
+                        onClick={handleStartTravel}
+                        disabled={!selectedTravelTarget}
+                        className="rpg-btn rpg-btn-primary w-full py-2 text-xs"
+                      >
+                        🏹 Set Party in Motion
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* List coordinates/nodes info */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-widest border-b border-white/5 pb-1">Known Locations</h3>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {viewedLocations.map(loc => (
+                      <div key={loc.id} className="text-xs p-2 bg-white/5 rounded border border-white/5 flex justify-between items-center">
+                        <div>
+                          <span className="font-fantasy text-slate-200 block">{loc.name}</span>
+                          <span className="text-[10px] text-slate-400 italic max-w-[180px] block truncate">{loc.description}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500 font-mono">({loc.x}, {loc.y})</span>
                           <button
                             onClick={() => handleDeleteLocation(loc.id, loc.name)}
                             className="text-rose-500 hover:text-rose-300 text-xs font-bold leading-none bg-transparent border-none cursor-pointer"
@@ -1889,10 +2103,10 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                           >
                             ×
                           </button>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

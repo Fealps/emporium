@@ -317,6 +317,20 @@ export const db = {
     });
   },
 
+  updateGameMaps: async (gameId, maps) => {
+    return request(`/games/${gameId}/maps`, {
+      method: 'PUT',
+      body: JSON.stringify({ maps })
+    });
+  },
+
+  updateGameActiveMap: async (gameId, activeMapId, mapUrl, locations) => {
+    return request(`/games/${gameId}/active-map`, {
+      method: 'PUT',
+      body: JSON.stringify({ activeMapId, mapUrl, locations })
+    });
+  },
+
   // Equip item action
   toggleEquipItem: async (gameId, username, itemId) => {
     const character = await db.getCharacter(gameId, username);

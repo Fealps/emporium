@@ -45,6 +45,9 @@ const initDb = async () => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        ALTER TABLE games ADD COLUMN IF NOT EXISTS maps JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE games ADD COLUMN IF NOT EXISTS active_map_id VARCHAR(50) DEFAULT 'map_default';
+
         CREATE TABLE IF NOT EXISTS characters (
           username VARCHAR(100) NOT NULL,
           game_id VARCHAR(20) NOT NULL,
@@ -164,7 +167,9 @@ app.get('/api/games/:id', async (req, res) => {
       locations: game.locations,
       partyLocation: game.party_location,
       travelState: game.travel_state,
-      mapUrl: game.map_url
+      mapUrl: game.map_url,
+      maps: game.maps || [],
+      activeMapId: game.active_map_id || 'map_default'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -186,11 +191,19 @@ app.post('/api/games', async (req, res) => {
       y: 285
     }
   ];
+  const defaultMaps = [
+    {
+      id: 'map_default',
+      name: 'Phandalin Cartography',
+      url: null,
+      locations: defaultLocations
+    }
+  ];
   try {
     await pool.query(
-      `INSERT INTO games (id, name, description, dm_username, locations, party_location)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [gameId, name, description, dmUsername, JSON.stringify(defaultLocations), 'loc_start']
+      `INSERT INTO games (id, name, description, dm_username, locations, party_location, maps, active_map_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [gameId, name, description, dmUsername, JSON.stringify(defaultLocations), 'loc_start', JSON.stringify(defaultMaps), 'map_default']
     );
     res.json({
       id: gameId,
@@ -202,7 +215,9 @@ app.post('/api/games', async (req, res) => {
       store: [],
       shops: [],
       travelState: null,
-      mapUrl: null
+      mapUrl: null,
+      maps: defaultMaps,
+      activeMapId: 'map_default'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -417,6 +432,31 @@ app.post('/api/games/:id/logs', async (req, res) => {
     await pool.query(
       'INSERT INTO logs (game_id, sender, message) VALUES ($1, $2, $3)',
       [id.toUpperCase(), sender, message]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/games/:id/maps', async (req, res) => {
+  const { id } = req.params;
+  const { maps } = req.body;
+  try {
+    await pool.query('UPDATE games SET maps = $1 WHERE id = $2', [JSON.stringify(maps), id.toUpperCase()]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/games/:id/active-map', async (req, res) => {
+  const { id } = req.params;
+  const { activeMapId, mapUrl, locations } = req.body;
+  try {
+    await pool.query(
+      'UPDATE games SET active_map_id = $1, map_url = $2, locations = $3 WHERE id = $4',
+      [activeMapId, mapUrl, JSON.stringify(locations), id.toUpperCase()]
     );
     res.json({ success: true });
   } catch (err) {

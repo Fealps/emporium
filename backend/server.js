@@ -176,6 +176,19 @@ app.get('/api/games/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/games/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const gameId = id.toUpperCase();
+    await pool.query('DELETE FROM logs WHERE game_id = $1', [gameId]);
+    await pool.query('DELETE FROM characters WHERE game_id = $1', [gameId]);
+    await pool.query('DELETE FROM games WHERE id = $1', [gameId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/games', async (req, res) => {
   const { name, description, dmUsername } = req.body;
   if (!name || !dmUsername) {

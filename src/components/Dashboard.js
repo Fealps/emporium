@@ -151,6 +151,27 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
     });
   };
 
+  const handleDeleteCampaign = async (gameId, gameName) => {
+    if (!window.confirm(`⚠️ WARNING: Are you sure you want to permanently delete the campaign "${gameName}" (${gameId})? This will delete all landmarks, shops, character sheets, and log history. This action CANNOT be undone.`)) {
+      return;
+    }
+
+    try {
+      await db.deleteGame(gameId);
+      const allCharacters = JSON.parse(localStorage.getItem('emporium_characters') || '{}');
+      const filteredChars = {};
+      Object.keys(allCharacters).forEach(key => {
+        if (!key.startsWith(`${gameId}_`)) {
+          filteredChars[key] = allCharacters[key];
+        }
+      });
+      localStorage.setItem('emporium_characters', JSON.stringify(filteredChars));
+      await loadGames();
+    } catch (e) {
+      alert(`Failed to delete campaign: ${e.message}`);
+    }
+  };
+
   // Filter campaign lists
   const dmCampaigns = Object.values(games).filter(g => g.dm === username);
 
@@ -348,12 +369,21 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
                       Code: {game.id}
                     </span>
                   </div>
-                  <button
-                    onClick={() => onSelectCampaign(game.id, 'dm')}
-                    className="rpg-btn rpg-btn-secondary text-xs py-1.5 px-3"
-                  >
-                    Manage DM Panel
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onSelectCampaign(game.id, 'dm')}
+                      className="rpg-btn rpg-btn-secondary text-xs py-1.5 px-3"
+                    >
+                      Manage DM Panel
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCampaign(game.id, game.name)}
+                      className="rpg-btn rpg-btn-secondary text-xs py-1.5 px-2.5 border-rose-950 text-rose-400 hover:bg-rose-950/20"
+                      title="Permanently Delete Campaign"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))
             )}

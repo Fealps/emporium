@@ -81,6 +81,12 @@ export const db = {
     });
   },
 
+  deleteGame: async (gameId) => {
+    return request(`/games/${gameId}`, {
+      method: 'DELETE'
+    });
+  },
+
   joinGame: async (gameId, username) => {
     try {
       return await request(`/games/${gameId}/join`, {

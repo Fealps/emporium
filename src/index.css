@@ -91,6 +91,7 @@ h4,
   color: var(--color-gold);
   background: linear-gradient(135deg, #ffe082 0%, var(--color-gold) 50%, #b28910 100%);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 

@@ -1,0 +1,285 @@
+export const srdItems = [
+  // Weapons
+  {
+    id: "srd_dagger",
+    name: "Dagger",
+    category: "Weapon",
+    cost: 2,
+    currency: "gp",
+    weight: 1,
+    rarity: "Common",
+    description: "1d4 piercing damage. Finesse, light, thrown (range 20/60).",
+    stats: { damage: "1d4 piercing", properties: ["Finesse", "Light", "Thrown (20/60)"] },
+    stock: 10
+  },
+  {
+    id: "srd_shortsword",
+    name: "Shortsword",
+    category: "Weapon",
+    cost: 10,
+    currency: "gp",
+    weight: 2,
+    rarity: "Common",
+    description: "1d6 piercing damage. Finesse, light.",
+    stats: { damage: "1d6 piercing", properties: ["Finesse", "Light"] },
+    stock: 8
+  },
+  {
+    id: "srd_longsword",
+    name: "Longsword",
+    category: "Weapon",
+    cost: 15,
+    currency: "gp",
+    weight: 3,
+    rarity: "Common",
+    description: "1d8 slashing damage. Versatile (1d10).",
+    stats: { damage: "1d8 slashing", properties: ["Versatile (1d10)"] },
+    stock: 5
+  },
+  {
+    id: "srd_greatsword",
+    name: "Greatsword",
+    category: "Weapon",
+    cost: 50,
+    currency: "gp",
+    weight: 6,
+    rarity: "Common",
+    description: "2d6 slashing damage. Heavy, two-handed.",
+    stats: { damage: "2d6 slashing", properties: ["Heavy", "Two-Handed"] },
+    stock: 3
+  },
+  {
+    id: "srd_shortbow",
+    name: "Shortbow",
+    category: "Weapon",
+    cost: 25,
+    currency: "gp",
+    weight: 2,
+    rarity: "Common",
+    description: "1d6 piercing damage. Ammunition (range 80/320), two-handed.",
+    stats: { damage: "1d6 piercing", properties: ["Ammunition (80/320)", "Two-Handed"] },
+    stock: 4
+  },
+  {
+    id: "srd_longbow",
+    name: "Longbow",
+    category: "Weapon",
+    cost: 50,
+    currency: "gp",
+    weight: 2,
+    rarity: "Common",
+    description: "1d8 piercing damage. Ammunition (range 150/600), heavy, two-handed.",
+    stats: { damage: "1d8 piercing", properties: ["Ammunition (150/600)", "Heavy", "Two-Handed"] },
+    stock: 2
+  },
+
+  // Armor
+  {
+    id: "srd_leather_armor",
+    name: "Leather Armor",
+    category: "Armor",
+    cost: 10,
+    currency: "gp",
+    weight: 10,
+    rarity: "Common",
+    description: "Light Armor. AC becomes 11 + Dexterity modifier.",
+    stats: { ac: 11, armorType: "Light", dexModLimit: null },
+    stock: 5
+  },
+  {
+    id: "srd_studded_leather",
+    name: "Studded Leather Armor",
+    category: "Armor",
+    cost: 45,
+    currency: "gp",
+    weight: 13,
+    rarity: "Common",
+    description: "Light Armor. AC becomes 12 + Dexterity modifier.",
+    stats: { ac: 12, armorType: "Light", dexModLimit: null },
+    stock: 3
+  },
+  {
+    id: "srd_scale_mail",
+    name: "Scale Mail",
+    category: "Armor",
+    cost: 50,
+    currency: "gp",
+    weight: 45,
+    rarity: "Common",
+    description: "Medium Armor. AC becomes 14 + Dexterity modifier (max +2). Disadvantage on Stealth checks.",
+    stats: { ac: 14, armorType: "Medium", dexModLimit: 2, stealthDisadvantage: true },
+    stock: 2
+  },
+  {
+    id: "srd_breastplate",
+    name: "Breastplate",
+    category: "Armor",
+    cost: 400,
+    currency: "gp",
+    weight: 20,
+    rarity: "Common",
+    description: "Medium Armor. AC becomes 14 + Dexterity modifier (max +2).",
+    stats: { ac: 14, armorType: "Medium", dexModLimit: 2 },
+    stock: 1
+  },
+  {
+    id: "srd_plate_armor",
+    name: "Plate Armor",
+    category: "Armor",
+    cost: 1500,
+    currency: "gp",
+    weight: 65,
+    rarity: "Common",
+    description: "Heavy Armor. AC becomes 18. Requires Strength 15. Disadvantage on Stealth checks.",
+    stats: { ac: 18, armorType: "Heavy", dexModLimit: 0, strRequired: 15, stealthDisadvantage: true },
+    stock: 1
+  },
+  {
+    id: "srd_shield",
+    name: "Shield",
+    category: "Shield",
+    cost: 10,
+    currency: "gp",
+    weight: 6,
+    rarity: "Common",
+    description: "Shield. Increases AC by +2 when equipped.",
+    stats: { acBonus: 2 },
+    stock: 5
+  },
+
+  // Consumables
+  {
+    id: "srd_potion_healing",
+    name: "Potion of Healing",
+    category: "Consumable",
+    cost: 50,
+    currency: "gp",
+    weight: 0.5,
+    rarity: "Common",
+    description: "A character who drinks this red fluid regains 2d4 + 2 hit points.",
+    stats: { healing: "2d4+2" },
+    stock: 20
+  },
+  {
+    id: "srd_potion_greater_healing",
+    name: "Potion of Greater Healing",
+    category: "Consumable",
+    cost: 150,
+    currency: "gp",
+    weight: 0.5,
+    rarity: "Uncommon",
+    description: "A character who drinks this glowing red fluid regains 4d4 + 4 hit points.",
+    stats: { healing: "4d4+4" },
+    stock: 10
+  },
+  {
+    id: "srd_potion_superior_healing",
+    name: "Potion of Superior Healing",
+    category: "Consumable",
+    cost: 450,
+    currency: "gp",
+    weight: 0.5,
+    rarity: "Rare",
+    description: "A character who drinks this swirling red fluid regains 8d4 + 8 hit points.",
+    stats: { healing: "8d4+8" },
+    stock: 5
+  },
+  {
+    id: "srd_antitoxin",
+    name: "Antitoxin",
+    category: "Consumable",
+    cost: 50,
+    currency: "gp",
+    weight: 0.1,
+    rarity: "Common",
+    description: "A creature that drinks this vial gains advantage on saving throws against poison for 1 hour.",
+    stats: {},
+    stock: 15
+  },
+  {
+    id: "srd_rations",
+    name: "Rations (1 Day)",
+    category: "Consumable",
+    cost: 5,
+    currency: "sp",
+    weight: 2,
+    rarity: "Common",
+    description: "Dry foods suitable for extended travel, including jerky, dried fruit, hardtack, and nuts.",
+    stats: {},
+    stock: 50
+  },
+
+  // Magic Items
+  {
+    id: "srd_longsword_plus1",
+    name: "+1 Longsword",
+    category: "Weapon",
+    cost: 500,
+    currency: "gp",
+    weight: 3,
+    rarity: "Rare",
+    description: "You gain a +1 bonus to attack and damage rolls made with this magic weapon.",
+    stats: { damage: "1d8+1 slashing", attackBonus: 1, damageBonus: 1, properties: ["Versatile (1d10+1)", "Magic"] },
+    stock: 1
+  },
+  {
+    id: "srd_cloak_protection",
+    name: "Cloak of Protection",
+    category: "Wondrous Item",
+    cost: 250,
+    currency: "gp",
+    weight: 1,
+    rarity: "Uncommon",
+    description: "You gain a +1 bonus to Armor Class and saving throws while wearing this cloak.",
+    stats: { acBonus: 1, saveBonus: 1 },
+    stock: 1
+  },
+  {
+    id: "srd_bag_holding",
+    name: "Bag of Holding",
+    category: "Wondrous Item",
+    cost: 250,
+    currency: "gp",
+    weight: 15,
+    rarity: "Uncommon",
+    description: "This bag has an interior space considerably larger than its outside dimensions, roughly 2 feet in diameter at the mouth and 4 feet deep. It can hold up to 500 pounds.",
+    stats: {},
+    stock: 2
+  },
+  {
+    id: "srd_boots_elvenkind",
+    name: "Boots of Elvenkind",
+    category: "Wondrous Item",
+    cost: 200,
+    currency: "gp",
+    weight: 1,
+    rarity: "Uncommon",
+    description: "While you wear these boots, your steps make no sound, regardless of the surface you are moving on. You have advantage on Dexterity (Stealth) checks that rely on moving silently.",
+    stats: {},
+    stock: 1
+  },
+  {
+    id: "srd_belt_hill_giant",
+    name: "Belt of Hill Giant Strength",
+    category: "Wondrous Item",
+    cost: 5000,
+    currency: "gp",
+    weight: 8,
+    rarity: "Rare",
+    description: "While wearing this belt, your Strength score becomes 21. It has no effect on you if your Strength is already 21 or greater.",
+    stats: { strengthOverride: 21 },
+    stock: 1
+  },
+  {
+    id: "srd_ring_wishes",
+    name: "Ring of Three Wishes",
+    category: "Wondrous Item",
+    cost: 20000,
+    currency: "gp",
+    weight: 0.1,
+    rarity: "Legendary",
+    description: "While wearing this ring, you can use an action to expend 1 of its 3 charges to cast the Wish spell.",
+    stats: { charges: 3 },
+    stock: 1
+  }
+];

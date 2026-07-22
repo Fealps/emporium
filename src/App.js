@@ -1,24 +1,69 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState } from 'react';
+import { db } from './utils/db';
+import Auth from './components/Auth';
+import Dashboard from './components/Dashboard';
+import DMPanel from './components/DMPanel';
+import PlayerPanel from './components/PlayerPanel';
 
 function App() {
+  const [currentUser, setCurrentUser] = useState(db.getCurrentUser());
+  const [activeGameId, setActiveGameId] = useState(null);
+  const [userRole, setUserRole] = useState(null); // 'dm' | 'player'
+
+  const handleAuthSuccess = (username) => {
+    setCurrentUser(username);
+  };
+
+  const handleLogout = () => {
+    db.logout();
+    setCurrentUser(null);
+    setActiveGameId(null);
+    setUserRole(null);
+  };
+
+  const handleSelectCampaign = (gameId, role) => {
+    setActiveGameId(gameId);
+    setUserRole(role);
+  };
+
+  const handleBackToDashboard = () => {
+    setActiveGameId(null);
+    setUserRole(null);
+  };
+
+  // Auth Guard
+  if (!currentUser) {
+    return <Auth onAuthSuccess={handleAuthSuccess} />;
+  }
+
+  // Active game view routing
+  if (activeGameId) {
+    if (userRole === 'dm') {
+      return (
+        <DMPanel
+          gameId={activeGameId}
+          username={currentUser}
+          onBackToDashboard={handleBackToDashboard}
+        />
+      );
+    } else {
+      return (
+        <PlayerPanel
+          gameId={activeGameId}
+          username={currentUser}
+          onBackToDashboard={handleBackToDashboard}
+        />
+      );
+    }
+  }
+
+  // Fallback to Dashboard Campaign List
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Dashboard
+      username={currentUser}
+      onSelectCampaign={handleSelectCampaign}
+      onLogout={handleLogout}
+    />
   );
 }
 

@@ -126,7 +126,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/users/:username/characters', async (req, res) => {
   const { username } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM characters WHERE username = $1', [username]);
+    const result = await pool.query('SELECT * FROM characters WHERE LOWER(username) = LOWER($1)', [username]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -256,11 +256,11 @@ app.post('/api/games/:id/join', async (req, res) => {
       return res.status(404).json({ error: 'Campaign code not found.' });
     }
     const game = gameResult.rows[0];
-    if (game.dm_username === username) {
+    if (game.dm_username.toLowerCase() === username.toLowerCase()) {
       return res.status(400).json({ error: 'You are the Dungeon Master of this campaign.' });
     }
 
-    const charResult = await pool.query('SELECT username FROM characters WHERE game_id = $1 AND username = $2', [id.toUpperCase(), username]);
+    const charResult = await pool.query('SELECT username FROM characters WHERE game_id = $1 AND LOWER(username) = LOWER($2)', [id.toUpperCase(), username]);
     const characterExists = charResult.rows.length > 0;
 
     res.json({
@@ -310,7 +310,7 @@ app.get('/api/games/:id/characters', async (req, res) => {
 app.get('/api/games/:id/characters/:username', async (req, res) => {
   const { id, username } = req.params;
   try {
-    const charResult = await pool.query('SELECT * FROM characters WHERE game_id = $1 AND username = $2', [id.toUpperCase(), username]);
+    const charResult = await pool.query('SELECT * FROM characters WHERE game_id = $1 AND LOWER(username) = LOWER($2)', [id.toUpperCase(), username]);
     if (charResult.rows.length === 0) {
       return res.status(404).json({ error: 'Character sheet not found.' });
     }
@@ -354,7 +354,7 @@ app.put('/api/games/:id/characters/:username', async (req, res) => {
     await pool.query(
       `UPDATE characters 
        SET name = $1, race = $2, class = $3, level = $4, hp_max = $5, hp_current = $6, stats = $7, gold = $8, inventory = $9
-       WHERE game_id = $10 AND username = $11`,
+       WHERE game_id = $10 AND LOWER(username) = LOWER($11)`,
       [name, race, className, level, hpMax, hpCurrent, JSON.stringify(stats), JSON.stringify(gold), JSON.stringify(inventory), id.toUpperCase(), username]
     );
     res.json({ success: true });
@@ -366,7 +366,7 @@ app.put('/api/games/:id/characters/:username', async (req, res) => {
 app.delete('/api/games/:id/characters/:username', async (req, res) => {
   const { id, username } = req.params;
   try {
-    await pool.query('DELETE FROM characters WHERE game_id = $1 AND username = $2', [id.toUpperCase(), username]);
+    await pool.query('DELETE FROM characters WHERE game_id = $1 AND LOWER(username) = LOWER($2)', [id.toUpperCase(), username]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

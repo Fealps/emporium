@@ -374,8 +374,8 @@ export default function PlayerPanel({ gameId, username, onBackToDashboard }) {
                 <input
                   type="number"
                   min="1"
-                  className="rpg-input text-xs w-16 text-center"
-                  style={{ padding: '4px' }}
+                  className="rpg-input text-xs text-center"
+                  style={{ width: '80px', padding: '4px' }}
                   value={hpChangeAmount}
                   onChange={(e) => setHpChangeAmount(Math.max(1, parseInt(e.target.value) || 1))}
                 />

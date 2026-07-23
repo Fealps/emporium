@@ -2173,7 +2173,7 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                             <input
                               type="number"
                               className="rpg-input text-xs text-center"
-                              style={{ width: '80px', padding: '4px' }}
+                              style={{ maxWidth: '2.5rem', padding: '4px' }}
                               value={editHp}
                               onChange={(e) => setEditHp(e.target.value)}
                             />
@@ -2190,7 +2190,7 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                           <input
                             type="number"
                             className="rpg-input text-xs text-center mt-1 mx-auto block"
-                            style={{ width: '80px', padding: '4px' }}
+                            style={{ maxWidth: '2.5rem', padding: '4px' }}
                             value={editLevel}
                             onChange={(e) => setEditLevel(e.target.value)}
                           />
@@ -2205,7 +2205,7 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                           <input
                             type="number"
                             className="rpg-input text-xs text-center mt-1 mx-auto block"
-                            style={{ width: '100px', padding: '4px' }}
+                            style={{ minWidth: '6rem', padding: '4px' }}
                             value={editGoldGp}
                             onChange={(e) => setEditGoldGp(e.target.value)}
                           />

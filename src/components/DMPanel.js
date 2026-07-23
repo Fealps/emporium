@@ -2167,12 +2167,12 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                     {/* Stats overview */}
                     <div className="grid grid-cols-3 gap-3">
                       <div className="bg-black/20 p-2 rounded text-center">
-                        <span className="text-md text-slate-400 uppercase">HP</span>
                         {isEditing ? (
                           <div className="flex items-center justify-center gap-1 mt-1">
                             <input
                               type="number"
-                              className="rpg-input text-xs p-1 w-12 text-center"
+                              className="rpg-input text-xs w-12 text-center"
+                              style={{ padding: '4px' }}
                               value={editHp}
                               onChange={(e) => setEditHp(e.target.value)}
                             />
@@ -2182,13 +2182,14 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                           <p className="text-sm font-bold text-rose-400 mt-1">{player.hpCurrent} / {player.hpMax}</p>
                         )}
                       </div>
-
+ 
                       <div className="bg-black/20 p-2 rounded text-center">
                         <span className="text-md text-slate-400 uppercase">Level</span>
                         {isEditing ? (
                           <input
                             type="number"
-                            className="rpg-input text-xs p-1 w-12 text-center mt-1 mx-auto block"
+                            className="rpg-input text-xs w-12 text-center mt-1 mx-auto block"
+                            style={{ padding: '4px' }}
                             value={editLevel}
                             onChange={(e) => setEditLevel(e.target.value)}
                           />
@@ -2196,13 +2197,14 @@ export default function DMPanel({ gameId, username, onBackToDashboard }) {
                           <p className="text-sm font-bold text-white mt-1">{player.level}</p>
                         )}
                       </div>
-
+ 
                       <div className="bg-black/20 p-2 rounded text-center">
                         <span className="text-md text-slate-400 uppercase">Gold Wallet</span>
                         {isEditing ? (
                           <input
                             type="number"
-                            className="rpg-input text-xs p-1 w-16 text-center mt-1 mx-auto block"
+                            className="rpg-input text-xs w-16 text-center mt-1 mx-auto block"
+                            style={{ padding: '4px' }}
                             value={editGoldGp}
                             onChange={(e) => setEditGoldGp(e.target.value)}
                           />

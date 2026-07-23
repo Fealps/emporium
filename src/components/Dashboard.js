@@ -3,6 +3,7 @@ import { db } from '../utils/db';
 
 export default function Dashboard({ username, onSelectCampaign, onLogout }) {
   const [games, setGames] = useState({});
+  const [userCharacters, setUserCharacters] = useState([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
 
@@ -29,6 +30,8 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
     try {
       const gamesList = await db.getGames();
       setGames(gamesList);
+      const charList = await db.getUserCharacters(username);
+      setUserCharacters(charList || []);
     } catch (e) {
       console.error("Failed to load campaigns:", e);
     }
@@ -36,6 +39,7 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
 
   useEffect(() => {
     loadGames();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleCreateCampaign = async (e) => {
@@ -158,14 +162,6 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
 
     try {
       await db.deleteGame(gameId);
-      const allCharacters = JSON.parse(localStorage.getItem('emporium_characters') || '{}');
-      const filteredChars = {};
-      Object.keys(allCharacters).forEach(key => {
-        if (!key.startsWith(`${gameId}_`)) {
-          filteredChars[key] = allCharacters[key];
-        }
-      });
-      localStorage.setItem('emporium_characters', JSON.stringify(filteredChars));
       await loadGames();
     } catch (e) {
       alert(`Failed to delete campaign: ${e.message}`);
@@ -176,7 +172,20 @@ export default function Dashboard({ username, onSelectCampaign, onLogout }) {
   const dmCampaigns = Object.values(games).filter(g => g.dm === username);
 
   // Find player campaigns (we have a character in them)
-  const allCharacters = JSON.parse(localStorage.getItem('emporium_characters') || '{}');
+  const allCharacters = {};
+  userCharacters.forEach(c => {
+    allCharacters[`${c.game_id}_${username.toLowerCase()}`] = {
+      name: c.name,
+      race: c.race,
+      class: c.class,
+      level: c.level,
+      hpMax: c.hp_max,
+      hpCurrent: c.hp_current,
+      stats: c.stats,
+      gold: c.gold,
+      inventory: c.inventory
+    };
+  });
   const playerGameIds = Object.keys(allCharacters)
     .filter(key => key.endsWith(`_${username.toLowerCase()}`))
     .map(key => key.split('_')[0]);

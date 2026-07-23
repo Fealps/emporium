@@ -120,6 +120,10 @@ export const db = {
   },
 
   // --- CHARACTERS ---
+  getUserCharacters: async (username) => {
+    return request(`/users/${username}/characters`);
+  },
+
   getCharacter: async (gameId, username) => {
     return request(`/games/${gameId}/characters/${username}`);
   },

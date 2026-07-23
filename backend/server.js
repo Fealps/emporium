@@ -123,6 +123,16 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.get('/api/users/:username/characters', async (req, res) => {
+  const { username } = req.params;
+  try {
+    const result = await pool.query('SELECT * FROM characters WHERE username = $1', [username]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 2. CAMPAIGNS (GAMES) ENDPOINTS
 app.get('/api/games', async (req, res) => {
   try {
